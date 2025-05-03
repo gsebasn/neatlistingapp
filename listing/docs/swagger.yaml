@@ -1,45 +1,276 @@
 basePath: /api/v1
 definitions:
-  domain.Listing:
+  domain.Address:
     properties:
-      created_at:
+      altStreetNames:
+        items:
+          type: string
+        type: array
+      apartment:
         type: string
-      description:
+      city:
         type: string
-      id:
+      coordinates:
+        $ref: '#/definitions/domain.Coordinates'
+      floor:
+        type: integer
+      fullStreet:
         type: string
-      price:
-        type: number
-      title:
+      normalizedStreet:
         type: string
-      updated_at:
+      number:
+        type: string
+      state:
+        type: string
+      street:
+        type: string
+      unit:
+        type: string
+      unit_loc:
+        type: string
+      zipcode:
         type: string
     type: object
+  domain.ClimateRisk:
+    properties:
+      fire:
+        type: integer
+      flood:
+        type: integer
+      heat:
+        type: integer
+    type: object
+  domain.Coordinates:
+    properties:
+      lat:
+        type: number
+      lng:
+        type: number
+    type: object
+  domain.ExtraFeatures:
+    properties:
+      lastRenovated:
+        type: integer
+      solarPanels:
+        type: boolean
+      viewScore:
+        type: number
+    type: object
+  domain.Listing:
+    description: A real estate listing object.
+    properties:
+      address:
+        $ref: '#/definitions/domain.Address'
+      bathrooms:
+        example: 2
+        type: integer
+      bedrooms:
+        example: 3
+        type: integer
+      climateRisk:
+        $ref: '#/definitions/domain.ClimateRisk'
+      crimeScore:
+        example: 2.5
+        type: number
+      description:
+        example: A beautiful family home.
+        type: string
+      estMonthlyCost:
+        example: 2500
+        type: integer
+      extraFeatures:
+        $ref: '#/definitions/domain.ExtraFeatures'
+      greenScore:
+        example: 7
+        type: integer
+      hoaFees:
+        example: 200
+        type: integer
+      id:
+        example: 60c72b2f9b1e8b6f1f8e4b1a
+        type: string
+      images:
+        example:
+        - '["https://example.com/image1.jpg"]'
+        items:
+          type: string
+        type: array
+      listingAgent:
+        $ref: '#/definitions/domain.ListingAgent'
+      listingUrl:
+        example: https://example.com/listing/123
+        type: string
+      location:
+        $ref: '#/definitions/domain.Location'
+      metaSummary:
+        example: Spacious, well-lit, close to schools.
+        type: string
+      price:
+        example: 1200000
+        type: integer
+      propertyType:
+        allOf:
+        - $ref: '#/definitions/domain.PropertyType'
+        example: house
+      schoolRating:
+        example: 9
+        type: integer
+      sqft:
+        example: 1500
+        type: integer
+      status:
+        allOf:
+        - $ref: '#/definitions/domain.ListingStatus'
+        example: active
+      tags:
+        example:
+        - '["garden"'
+        - '"garage"]'
+        items:
+          type: string
+        type: array
+      taxRate:
+        example: 1.2
+        type: number
+      updatedAt:
+        example: "2023-01-02T00:00:00Z"
+        type: string
+      walkScore:
+        example: 80
+        type: integer
+      yearBuilt:
+        example: 1990
+        type: integer
+    type: object
+  domain.ListingAgent:
+    properties:
+      customMetadata:
+        additionalProperties: true
+        type: object
+      email:
+        type: string
+      name:
+        type: string
+      phone:
+        type: string
+    type: object
+  domain.ListingStatus:
+    enum:
+    - active
+    - pending
+    - sold
+    type: string
+    x-enum-varnames:
+    - Active
+    - Pending
+    - Sold
+  domain.Location:
+    properties:
+      coordinates:
+        items:
+          type: number
+        type: array
+      type:
+        type: string
+    type: object
+  domain.PropertyType:
+    enum:
+    - house
+    - apartment
+    - condo
+    - townhouse
+    - land
+    - commercial
+    type: string
+    x-enum-varnames:
+    - House
+    - Apartment
+    - Condo
+    - Townhouse
+    - Land
+    - Commercial
 host: localhost:8080
 info:
-  contact: {}
-  description: A simple listing service API
+  contact:
+    email: support@swagger.io
+    name: API Support
+    url: http://www.swagger.io/support
+  description: A real estate listing service API that provides endpoints for managing
+    property listings, including creation, retrieval, updates, and deletion of listings.
+    The API supports filtering listings by various criteria such as price range, property
+    type, number of bedrooms, and listing status.
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
   title: Listing API
   version: "1.0"
 paths:
-  /health:
+  /listing/health:
     get:
-      description: Get the health status of the API
+      description: Check if the service is healthy and database connection is working.
+        This endpoint verifies both the API service availability and the MongoDB database
+        connectivity.
       produces:
       - application/json
       responses:
         "200":
-          description: OK
+          description: Service is healthy
           schema:
             additionalProperties:
-              type: string
+              allOf:
+              - type: string
+              - properties:
+                  message:
+                    type: string
+                  status:
+                    type: string
+                type: object
+            type: object
+        "503":
+          description: Service is unhealthy
+          schema:
+            additionalProperties:
+              allOf:
+              - type: string
+              - properties:
+                  error:
+                    type: string
+                  status:
+                    type: string
+                type: object
             type: object
       summary: Health check endpoint
       tags:
-      - health
+      - Health
   /listings:
     get:
-      description: Get all listings
+      description: Get a list of all property listings, with optional filters.
+      parameters:
+      - description: Listing status
+        in: query
+        name: status
+        type: string
+      - description: Property type
+        in: query
+        name: propertyType
+        type: string
+      - description: Minimum price
+        in: query
+        name: minPrice
+        type: integer
+      - description: Maximum price
+        in: query
+        name: maxPrice
+        type: integer
+      - description: Minimum bedrooms
+        in: query
+        name: minBedrooms
+        type: integer
+      - description: Maximum bedrooms
+        in: query
+        name: maxBedrooms
+        type: integer
       produces:
       - application/json
       responses:
@@ -49,15 +280,21 @@ paths:
             items:
               $ref: '#/definitions/domain.Listing'
             type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       summary: List all listings
       tags:
       - listings
     post:
       consumes:
       - application/json
-      description: Create a new listing
+      description: Add a new property listing.
       parameters:
-      - description: Listing object
+      - description: Listing to create
         in: body
         name: listing
         required: true
@@ -76,25 +313,29 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       summary: Create a new listing
       tags:
       - listings
   /listings/{id}:
     delete:
-      description: Delete a listing by its ID
+      description: Delete a property listing by ID.
       parameters:
       - description: Listing ID
         in: path
         name: id
         required: true
         type: string
-      produces:
-      - application/json
       responses:
         "204":
           description: No Content
-        "404":
-          description: Not Found
+        "500":
+          description: Internal Server Error
           schema:
             additionalProperties:
               type: string
@@ -103,7 +344,7 @@ paths:
       tags:
       - listings
     get:
-      description: Get a listing by its ID
+      description: Get details of a specific listing by its ID.
       parameters:
       - description: Listing ID
         in: path
@@ -129,14 +370,14 @@ paths:
     put:
       consumes:
       - application/json
-      description: Update an existing listing
+      description: Update an existing property listing by ID.
       parameters:
       - description: Listing ID
         in: path
         name: id
         required: true
         type: string
-      - description: Listing object
+      - description: Listing to update
         in: body
         name: listing
         required: true
@@ -155,7 +396,31 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       summary: Update a listing
       tags:
       - listings
+schemes:
+- http
+- https
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and JWT token.
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"
+tags:
+- description: Health check endpoints for monitoring service status and database connectivity
+  name: Health
+- description: Listing management endpoints for creating, reading, updating, and deleting
+    property listings. Supports filtering by status, property type, price range, and
+    number of bedrooms.
+  name: Listings
+- description: Swagger documentation endpoints
+  name: Swagger

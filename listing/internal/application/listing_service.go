@@ -29,33 +29,24 @@ func (s *ListingService) GetListing(id string) (*domain.Listing, error) {
 
 // CreateListing creates a new listing
 func (s *ListingService) CreateListing(listing *domain.Listing) error {
-	if listing.Title == "" {
-		return errors.New("listing title is required")
-	}
 	if listing.Price < 0 {
 		return errors.New("listing price must be positive")
 	}
 
-	now := time.Now()
-	listing.CreatedAt = now
-	listing.UpdatedAt = now
-
+	listing.UpdatedAt = time.Now().Format(time.RFC3339)
 	return s.repo.Create(listing)
 }
 
 // UpdateListing updates an existing listing
 func (s *ListingService) UpdateListing(listing *domain.Listing) error {
-	if listing.ID == "" {
+	if listing.ID.IsZero() {
 		return errors.New("listing ID is required")
-	}
-	if listing.Title == "" {
-		return errors.New("listing title is required")
 	}
 	if listing.Price < 0 {
 		return errors.New("listing price must be positive")
 	}
 
-	listing.UpdatedAt = time.Now()
+	listing.UpdatedAt = time.Now().Format(time.RFC3339)
 	return s.repo.Update(listing)
 }
 

@@ -5,18 +5,20 @@ import (
 	"sync"
 
 	"listing/internal/domain"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// MemoryRepository implements the ListingRepository interface using in-memory storage
+// MemoryRepository is an in-memory implementation of the repository interface
 type MemoryRepository struct {
-	listings map[string]*domain.Listing
 	mu       sync.RWMutex
+	listings map[primitive.ObjectID]*domain.Listing
 }
 
 // NewMemoryRepository creates a new instance of MemoryRepository
 func NewMemoryRepository() *MemoryRepository {
 	return &MemoryRepository{
-		listings: make(map[string]*domain.Listing),
+		listings: make(map[primitive.ObjectID]*domain.Listing),
 	}
 }
 
@@ -25,7 +27,12 @@ func (r *MemoryRepository) GetByID(id string) (*domain.Listing, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	listing, exists := r.listings[id]
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, errors.New("invalid ID format")
+	}
+
+	listing, exists := r.listings[objectID]
 	if !exists {
 		return nil, errors.New("listing not found")
 	}
@@ -63,11 +70,16 @@ func (r *MemoryRepository) Delete(id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, exists := r.listings[id]; !exists {
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return errors.New("invalid ID format")
+	}
+
+	if _, exists := r.listings[objectID]; !exists {
 		return errors.New("listing not found")
 	}
 
-	delete(r.listings, id)
+	delete(r.listings, objectID)
 	return nil
 }
 

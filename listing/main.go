@@ -1,180 +1,137 @@
 package main
 
 import (
-	"log"
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	_ "listing/docs"
-	"listing/internal/application"
+	"listing/internal/api/routes"
 	"listing/internal/domain"
+	"listing/internal/infrastructure/config"
+	"listing/internal/infrastructure/logging"
 	"listing/internal/infrastructure/repository"
 
-	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+	"go.uber.org/zap"
 )
 
 // @title           Listing API
 // @version         1.0
-// @description     A simple listing service API
+// @description     A real estate listing service API that provides endpoints for managing property listings, including creation, retrieval, updates, and deletion of listings. The API supports filtering listings by various criteria such as price range, property type, number of bedrooms, and listing status.
+// @termsOfService  http://swagger.io/terms/
+
+// @contact.name   API Support
+// @contact.url    http://www.swagger.io/support
+// @contact.email  support@swagger.io
+
+// @license.name  Apache 2.0
+// @license.url   http://www.apache.org/licenses/LICENSE-2.0.html
+
 // @host            localhost:8080
 // @BasePath        /api/v1
 
+// @tag.name        Health
+// @tag.description Health check endpoints for monitoring service status and database connectivity
+
+// @tag.name        Listings
+// @tag.description Listing management endpoints for creating, reading, updating, and deleting property listings. Supports filtering by status, property type, price range, and number of bedrooms.
+
+// @tag.name        Swagger
+// @tag.description Swagger documentation endpoints
+
+// @schemes         http https
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and JWT token.
+
 func main() {
-	// Initialize dependencies
-	repo := repository.NewMemoryRepository()
-	service := application.NewListingService(repo)
-
-	// Initialize router
-	r := gin.Default()
-
-	// API v1 group
-	v1 := r.Group("/api/v1")
-	{
-		// Health check endpoint
-		v1.GET("/health", HealthCheck)
-
-		// Listing endpoints
-		v1.GET("/listings", ListListings(service))
-		v1.GET("/listings/:id", GetListing(service))
-		v1.POST("/listings", CreateListing(service))
-		v1.PUT("/listings/:id", UpdateListing(service))
-		v1.DELETE("/listings/:id", DeleteListing(service))
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		panic("Failed to load configuration: " + err.Error())
 	}
 
-	// Swagger documentation endpoint
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-
-	// Start the server
-	if err := r.Run(":8080"); err != nil {
-		log.Fatal("Failed to start server: ", err)
+	// Initialize logger
+	logger, err := logging.New(cfg)
+	if err != nil {
+		panic("Failed to initialize logger: " + err.Error())
 	}
-}
+	defer logger.Sync()
 
-// HealthCheck godoc
-// @Summary      Health check endpoint
-// @Description  Get the health status of the API
-// @Tags         health
-// @Produce      json
-// @Success      200  {object}  map[string]string
-// @Router       /health [get]
-func HealthCheck(c *gin.Context) {
-	c.JSON(200, gin.H{
-		"status": "healthy",
-	})
-}
+	logger.Info("Starting application",
+		zap.String("environment", string(cfg.Env)),
+		zap.String("port", cfg.Server.Port),
+	)
 
-// ListListings godoc
-// @Summary      List all listings
-// @Description  Get all listings
-// @Tags         listings
-// @Produce      json
-// @Success      200  {array}   domain.Listing
-// @Router       /listings [get]
-func ListListings(service *application.ListingService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		listings, err := service.ListListings()
-		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(200, listings)
+	// Create context with timeout for MongoDB connection
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.MongoDB.Timeout)
+	defer cancel()
+
+	// Initialize MongoDB repository
+	listingRepo, err := repository.NewMongoRepository[domain.Listing](ctx, cfg.MongoDB.URI, cfg.MongoDB.Database, "listings")
+	if err != nil {
+		logger.Fatal("Failed to initialize MongoDB repository", zap.Error(err))
 	}
-}
+	fmt.Printf("Connected to MongoDB database: %s, collection: listings\n", cfg.MongoDB.Database)
 
-// GetListing godoc
-// @Summary      Get a listing by ID
-// @Description  Get a listing by its ID
-// @Tags         listings
-// @Produce      json
-// @Param        id   path      string  true  "Listing ID"
-// @Success      200  {object}  domain.Listing
-// @Failure      404  {object}  map[string]string
-// @Router       /listings/{id} [get]
-func GetListing(service *application.ListingService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		listing, err := service.GetListing(id)
-		if err != nil {
-			c.JSON(404, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(200, listing)
+	// Verify MongoDB connection
+	count, err := listingRepo.Count()
+	if err != nil {
+		logger.Fatal("Failed to count documents", zap.Error(err))
 	}
-}
+	fmt.Printf("Found %d documents in listings collection\n", count)
 
-// CreateListing godoc
-// @Summary      Create a new listing
-// @Description  Create a new listing
-// @Tags         listings
-// @Accept       json
-// @Produce      json
-// @Param        listing  body      domain.Listing  true  "Listing object"
-// @Success      201     {object}  domain.Listing
-// @Failure      400     {object}  map[string]string
-// @Router       /listings [post]
-func CreateListing(service *application.ListingService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var listing domain.Listing
-		if err := c.ShouldBindJSON(&listing); err != nil {
-			c.JSON(400, gin.H{"error": err.Error()})
-			return
-		}
+	// Initialize router with all routes
+	router := routes.SetupRouter(listingRepo, cfg)
 
-		if err := service.CreateListing(&listing); err != nil {
-			c.JSON(400, gin.H{"error": err.Error()})
-			return
-		}
+	// Add Swagger documentation endpoint
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-		c.JSON(201, listing)
+	// Create a server with configured timeouts
+	srv := &http.Server{
+		Addr:         ":" + cfg.Server.Port,
+		Handler:      router,
+		ReadTimeout:  cfg.Server.ReadTimeout,
+		WriteTimeout: cfg.Server.WriteTimeout,
+		IdleTimeout:  cfg.Server.IdleTimeout,
 	}
-}
 
-// UpdateListing godoc
-// @Summary      Update a listing
-// @Description  Update an existing listing
-// @Tags         listings
-// @Accept       json
-// @Produce      json
-// @Param        id       path      string         true  "Listing ID"
-// @Param        listing  body      domain.Listing  true  "Listing object"
-// @Success      200     {object}  domain.Listing
-// @Failure      400     {object}  map[string]string
-// @Router       /listings/{id} [put]
-func UpdateListing(service *application.ListingService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		var listing domain.Listing
-		if err := c.ShouldBindJSON(&listing); err != nil {
-			c.JSON(400, gin.H{"error": err.Error()})
-			return
+	// Start server in a goroutine
+	go func() {
+		logger.Info("Server starting",
+			zap.String("port", cfg.Server.Port),
+		)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal("Failed to start server",
+				zap.Error(err),
+			)
 		}
+	}()
 
-		listing.ID = id
-		if err := service.UpdateListing(&listing); err != nil {
-			c.JSON(400, gin.H{"error": err.Error()})
-			return
-		}
+	// Wait for interrupt signal to gracefully shutdown the server
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	logger.Info("Shutting down server...")
 
-		c.JSON(200, listing)
+	// Create shutdown context with timeout
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Attempt graceful shutdown
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Fatal("Server forced to shutdown",
+			zap.Error(err),
+		)
 	}
-}
 
-// DeleteListing godoc
-// @Summary      Delete a listing
-// @Description  Delete a listing by its ID
-// @Tags         listings
-// @Produce      json
-// @Param        id   path      string  true  "Listing ID"
-// @Success      204  "No Content"
-// @Failure      404  {object}  map[string]string
-// @Router       /listings/{id} [delete]
-func DeleteListing(service *application.ListingService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		if err := service.DeleteListing(id); err != nil {
-			c.JSON(404, gin.H{"error": err.Error()})
-			return
-		}
-		c.Status(204)
-	}
+	logger.Info("Server exited")
 }

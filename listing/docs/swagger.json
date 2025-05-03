@@ -1,31 +1,83 @@
 {
+    "schemes": [
+        "http",
+        "https"
+    ],
     "swagger": "2.0",
     "info": {
-        "description": "A simple listing service API",
+        "description": "A real estate listing service API that provides endpoints for managing property listings, including creation, retrieval, updates, and deletion of listings. The API supports filtering listings by various criteria such as price range, property type, number of bedrooms, and listing status.",
         "title": "Listing API",
-        "contact": {},
+        "termsOfService": "http://swagger.io/terms/",
+        "contact": {
+            "name": "API Support",
+            "url": "http://www.swagger.io/support",
+            "email": "support@swagger.io"
+        },
+        "license": {
+            "name": "Apache 2.0",
+            "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        },
         "version": "1.0"
     },
     "host": "localhost:8080",
     "basePath": "/api/v1",
     "paths": {
-        "/health": {
+        "/listing/health": {
             "get": {
-                "description": "Get the health status of the API",
+                "description": "Check if the service is healthy and database connection is working. This endpoint verifies both the API service availability and the MongoDB database connectivity.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "health"
+                    "Health"
                 ],
                 "summary": "Health check endpoint",
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "Service is healthy",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
-                                "type": "string"
+                                "allOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "message": {
+                                                "type": "string"
+                                            },
+                                            "status": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service is unhealthy",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "allOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "error": {
+                                                "type": "string"
+                                            },
+                                            "status": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                ]
                             }
                         }
                     }
@@ -34,7 +86,7 @@
         },
         "/listings": {
             "get": {
-                "description": "Get all listings",
+                "description": "Get a list of all property listings, with optional filters.",
                 "produces": [
                     "application/json"
                 ],
@@ -42,6 +94,44 @@
                     "listings"
                 ],
                 "summary": "List all listings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Listing status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Property type",
+                        "name": "propertyType",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Minimum price",
+                        "name": "minPrice",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum price",
+                        "name": "maxPrice",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Minimum bedrooms",
+                        "name": "minBedrooms",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum bedrooms",
+                        "name": "maxBedrooms",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -51,11 +141,20 @@
                                 "$ref": "#/definitions/domain.Listing"
                             }
                         }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
                     }
                 }
             },
             "post": {
-                "description": "Create a new listing",
+                "description": "Add a new property listing.",
                 "consumes": [
                     "application/json"
                 ],
@@ -68,7 +167,7 @@
                 "summary": "Create a new listing",
                 "parameters": [
                     {
-                        "description": "Listing object",
+                        "description": "Listing to create",
                         "name": "listing",
                         "in": "body",
                         "required": true,
@@ -92,13 +191,22 @@
                                 "type": "string"
                             }
                         }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
                     }
                 }
             }
         },
         "/listings/{id}": {
             "get": {
-                "description": "Get a listing by its ID",
+                "description": "Get details of a specific listing by its ID.",
                 "produces": [
                     "application/json"
                 ],
@@ -134,7 +242,7 @@
                 }
             },
             "put": {
-                "description": "Update an existing listing",
+                "description": "Update an existing property listing by ID.",
                 "consumes": [
                     "application/json"
                 ],
@@ -154,7 +262,7 @@
                         "required": true
                     },
                     {
-                        "description": "Listing object",
+                        "description": "Listing to update",
                         "name": "listing",
                         "in": "body",
                         "required": true,
@@ -178,14 +286,20 @@
                                 "type": "string"
                             }
                         }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
                     }
                 }
             },
             "delete": {
-                "description": "Delete a listing by its ID",
-                "produces": [
-                    "application/json"
-                ],
+                "description": "Delete a property listing by ID.",
                 "tags": [
                     "listings"
                 ],
@@ -203,8 +317,8 @@
                     "204": {
                         "description": "No Content"
                     },
-                    "404": {
-                        "description": "Not Found",
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -217,28 +331,301 @@
         }
     },
     "definitions": {
-        "domain.Listing": {
+        "domain.Address": {
             "type": "object",
             "properties": {
-                "created_at": {
+                "altStreetNames": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "apartment": {
                     "type": "string"
                 },
-                "description": {
+                "city": {
                     "type": "string"
                 },
-                "id": {
+                "coordinates": {
+                    "$ref": "#/definitions/domain.Coordinates"
+                },
+                "floor": {
+                    "type": "integer"
+                },
+                "fullStreet": {
                     "type": "string"
                 },
-                "price": {
-                    "type": "number"
-                },
-                "title": {
+                "normalizedStreet": {
                     "type": "string"
                 },
-                "updated_at": {
+                "number": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "street": {
+                    "type": "string"
+                },
+                "unit": {
+                    "type": "string"
+                },
+                "unit_loc": {
+                    "type": "string"
+                },
+                "zipcode": {
                     "type": "string"
                 }
             }
+        },
+        "domain.ClimateRisk": {
+            "type": "object",
+            "properties": {
+                "fire": {
+                    "type": "integer"
+                },
+                "flood": {
+                    "type": "integer"
+                },
+                "heat": {
+                    "type": "integer"
+                }
+            }
+        },
+        "domain.Coordinates": {
+            "type": "object",
+            "properties": {
+                "lat": {
+                    "type": "number"
+                },
+                "lng": {
+                    "type": "number"
+                }
+            }
+        },
+        "domain.ExtraFeatures": {
+            "type": "object",
+            "properties": {
+                "lastRenovated": {
+                    "type": "integer"
+                },
+                "solarPanels": {
+                    "type": "boolean"
+                },
+                "viewScore": {
+                    "type": "number"
+                }
+            }
+        },
+        "domain.Listing": {
+            "description": "A real estate listing object.",
+            "type": "object",
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/domain.Address"
+                },
+                "bathrooms": {
+                    "type": "integer",
+                    "example": 2
+                },
+                "bedrooms": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "climateRisk": {
+                    "$ref": "#/definitions/domain.ClimateRisk"
+                },
+                "crimeScore": {
+                    "type": "number",
+                    "example": 2.5
+                },
+                "description": {
+                    "type": "string",
+                    "example": "A beautiful family home."
+                },
+                "estMonthlyCost": {
+                    "type": "integer",
+                    "example": 2500
+                },
+                "extraFeatures": {
+                    "$ref": "#/definitions/domain.ExtraFeatures"
+                },
+                "greenScore": {
+                    "type": "integer",
+                    "example": 7
+                },
+                "hoaFees": {
+                    "type": "integer",
+                    "example": 200
+                },
+                "id": {
+                    "type": "string",
+                    "example": "60c72b2f9b1e8b6f1f8e4b1a"
+                },
+                "images": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "[\"https://example.com/image1.jpg\"]"
+                    ]
+                },
+                "listingAgent": {
+                    "$ref": "#/definitions/domain.ListingAgent"
+                },
+                "listingUrl": {
+                    "type": "string",
+                    "example": "https://example.com/listing/123"
+                },
+                "location": {
+                    "$ref": "#/definitions/domain.Location"
+                },
+                "metaSummary": {
+                    "type": "string",
+                    "example": "Spacious, well-lit, close to schools."
+                },
+                "price": {
+                    "type": "integer",
+                    "example": 1200000
+                },
+                "propertyType": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/domain.PropertyType"
+                        }
+                    ],
+                    "example": "house"
+                },
+                "schoolRating": {
+                    "type": "integer",
+                    "example": 9
+                },
+                "sqft": {
+                    "type": "integer",
+                    "example": 1500
+                },
+                "status": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/domain.ListingStatus"
+                        }
+                    ],
+                    "example": "active"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "[\"garden\"",
+                        "\"garage\"]"
+                    ]
+                },
+                "taxRate": {
+                    "type": "number",
+                    "example": 1.2
+                },
+                "updatedAt": {
+                    "type": "string",
+                    "example": "2023-01-02T00:00:00Z"
+                },
+                "walkScore": {
+                    "type": "integer",
+                    "example": 80
+                },
+                "yearBuilt": {
+                    "type": "integer",
+                    "example": 1990
+                }
+            }
+        },
+        "domain.ListingAgent": {
+            "type": "object",
+            "properties": {
+                "customMetadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "email": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "phone": {
+                    "type": "string"
+                }
+            }
+        },
+        "domain.ListingStatus": {
+            "type": "string",
+            "enum": [
+                "active",
+                "pending",
+                "sold"
+            ],
+            "x-enum-varnames": [
+                "Active",
+                "Pending",
+                "Sold"
+            ]
+        },
+        "domain.Location": {
+            "type": "object",
+            "properties": {
+                "coordinates": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "domain.PropertyType": {
+            "type": "string",
+            "enum": [
+                "house",
+                "apartment",
+                "condo",
+                "townhouse",
+                "land",
+                "commercial"
+            ],
+            "x-enum-varnames": [
+                "House",
+                "Apartment",
+                "Condo",
+                "Townhouse",
+                "Land",
+                "Commercial"
+            ]
         }
-    }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "description": "Type \"Bearer\" followed by a space and JWT token.",
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    },
+    "tags": [
+        {
+            "description": "Health check endpoints for monitoring service status and database connectivity",
+            "name": "Health"
+        },
+        {
+            "description": "Listing management endpoints for creating, reading, updating, and deleting property listings. Supports filtering by status, property type, price range, and number of bedrooms.",
+            "name": "Listings"
+        },
+        {
+            "description": "Swagger documentation endpoints",
+            "name": "Swagger"
+        }
+    ]
 }
