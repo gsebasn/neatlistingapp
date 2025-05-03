@@ -1,4 +1,20 @@
 basePath: /api/v1
+definitions:
+  domain.Listing:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      price:
+        type: number
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
 host: localhost:8080
 info:
   contact: {}
@@ -21,4 +37,125 @@ paths:
       summary: Health check endpoint
       tags:
       - health
+  /listings:
+    get:
+      description: Get all listings
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.Listing'
+            type: array
+      summary: List all listings
+      tags:
+      - listings
+    post:
+      consumes:
+      - application/json
+      description: Create a new listing
+      parameters:
+      - description: Listing object
+        in: body
+        name: listing
+        required: true
+        schema:
+          $ref: '#/definitions/domain.Listing'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.Listing'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new listing
+      tags:
+      - listings
+  /listings/{id}:
+    delete:
+      description: Delete a listing by its ID
+      parameters:
+      - description: Listing ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete a listing
+      tags:
+      - listings
+    get:
+      description: Get a listing by its ID
+      parameters:
+      - description: Listing ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Listing'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get a listing by ID
+      tags:
+      - listings
+    put:
+      consumes:
+      - application/json
+      description: Update an existing listing
+      parameters:
+      - description: Listing ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Listing object
+        in: body
+        name: listing
+        required: true
+        schema:
+          $ref: '#/definitions/domain.Listing'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Listing'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update a listing
+      tags:
+      - listings
 swagger: "2.0"
