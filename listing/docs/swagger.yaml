@@ -98,7 +98,7 @@ definitions:
       listingAgent:
         $ref: '#/definitions/domain.ListingAgent'
       listingUrl:
-        example: https://example.com/listing/123
+        example: https://example.com/listings/123
         type: string
       location:
         $ref: '#/definitions/domain.Location'
@@ -206,43 +206,6 @@ info:
   title: Listing API
   version: "1.0"
 paths:
-  /listing/health:
-    get:
-      description: Check if the service is healthy and database connection is working.
-        This endpoint verifies both the API service availability and the MongoDB database
-        connectivity.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Service is healthy
-          schema:
-            additionalProperties:
-              allOf:
-              - type: string
-              - properties:
-                  message:
-                    type: string
-                  status:
-                    type: string
-                type: object
-            type: object
-        "503":
-          description: Service is unhealthy
-          schema:
-            additionalProperties:
-              allOf:
-              - type: string
-              - properties:
-                  error:
-                    type: string
-                  status:
-                    type: string
-                type: object
-            type: object
-      summary: Health check endpoint
-      tags:
-      - Health
   /listings:
     get:
       description: Get a list of all property listings, with optional filters.
@@ -405,6 +368,43 @@ paths:
       summary: Update a listing
       tags:
       - listings
+  /listings/health:
+    get:
+      description: Check if the service is healthy and database connection is working.
+        This endpoint verifies both the API service availability and the MongoDB database
+        connectivity.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Service is healthy
+          schema:
+            additionalProperties:
+              allOf:
+              - type: string
+              - properties:
+                  message:
+                    type: string
+                  status:
+                    type: string
+                type: object
+            type: object
+        "503":
+          description: Service is unhealthy
+          schema:
+            additionalProperties:
+              allOf:
+              - type: string
+              - properties:
+                  error:
+                    type: string
+                  status:
+                    type: string
+                type: object
+            type: object
+      summary: Health check endpoint
+      tags:
+      - Health
 schemes:
 - http
 - https

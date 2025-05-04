@@ -89,7 +89,7 @@ type Listing struct {
 	YearBuilt      int                `bson:"yearBuilt" json:"yearBuilt" example:"1990"`
 	PropertyType   PropertyType       `bson:"propertyType" json:"propertyType" example:"house"`
 	Status         ListingStatus      `bson:"status" json:"status" example:"active"`
-	ListingUrl     string             `bson:"listingUrl" json:"listingUrl" example:"https://example.com/listing/123"`
+	ListingUrl     string             `bson:"listingUrl" json:"listingUrl" example:"https://example.com/listings/123"`
 	Images         []string           `bson:"images" json:"images" example:"[\"https://example.com/image1.jpg\"]"`
 	Description    string             `bson:"description" json:"description" example:"A beautiful family home."`
 	WalkScore      int                `bson:"walkScore" json:"walkScore" example:"80"`

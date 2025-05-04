@@ -24,68 +24,6 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/listing/health": {
-            "get": {
-                "description": "Check if the service is healthy and database connection is working. This endpoint verifies both the API service availability and the MongoDB database connectivity.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Health"
-                ],
-                "summary": "Health check endpoint",
-                "responses": {
-                    "200": {
-                        "description": "Service is healthy",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "allOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "object",
-                                        "properties": {
-                                            "message": {
-                                                "type": "string"
-                                            },
-                                            "status": {
-                                                "type": "string"
-                                            }
-                                        }
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "503": {
-                        "description": "Service is unhealthy",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "allOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "object",
-                                        "properties": {
-                                            "error": {
-                                                "type": "string"
-                                            },
-                                            "status": {
-                                                "type": "string"
-                                            }
-                                        }
-                                    }
-                                ]
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/listings": {
             "get": {
                 "description": "Get a list of all property listings, with optional filters.",
@@ -200,6 +138,68 @@ const docTemplate = `{
                             "type": "object",
                             "additionalProperties": {
                                 "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/listings/health": {
+            "get": {
+                "description": "Check if the service is healthy and database connection is working. This endpoint verifies both the API service availability and the MongoDB database connectivity.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Health"
+                ],
+                "summary": "Health check endpoint",
+                "responses": {
+                    "200": {
+                        "description": "Service is healthy",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "allOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "message": {
+                                                "type": "string"
+                                            },
+                                            "status": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service is unhealthy",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "allOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "error": {
+                                                "type": "string"
+                                            },
+                                            "status": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                ]
                             }
                         }
                     }
@@ -478,7 +478,7 @@ const docTemplate = `{
                 },
                 "listingUrl": {
                     "type": "string",
-                    "example": "https://example.com/listing/123"
+                    "example": "https://example.com/listings/123"
                 },
                 "location": {
                     "$ref": "#/definitions/domain.Location"

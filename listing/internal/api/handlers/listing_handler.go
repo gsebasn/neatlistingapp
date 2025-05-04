@@ -261,7 +261,7 @@ func filterByMaxBedrooms(listings []*domain.Listing, maxBedrooms int) []*domain.
 	return filtered
 }
 
-// HealthCheck handles GET /api/v1/listing/health
+// HealthCheck handles GET /api/v1/listings/health
 // @Summary      Health check endpoint
 // @Description  Check if the service is healthy and database connection is working. This endpoint verifies both the API service availability and the MongoDB database connectivity.
 // @Tags         Health
@@ -282,7 +282,7 @@ func filterByMaxBedrooms(listings []*domain.Listing, maxBedrooms int) []*domain.
 //	  "error": "Database connection failed: connection refused"
 //	}
 //
-// @Router       /listing/health [get]
+// @Router       /listings/health [get]
 func (h *ListingHandler) HealthCheck(c *gin.Context) {
 	// Check database connection by attempting to list listings
 	_, err := h.repo.List()

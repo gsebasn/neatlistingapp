@@ -48,7 +48,7 @@ func SetupRouter(repo domain.ListingRepository, cfg *config.Config) *gin.Engine 
 	api := router.Group("/api/v1")
 	{
 		// Health check route
-		api.GET("/listing/health", listingHandler.HealthCheck)
+		api.GET("/listings/health", listingHandler.HealthCheck)
 
 		// Listing routes
 		listings := api.Group("/listings")
