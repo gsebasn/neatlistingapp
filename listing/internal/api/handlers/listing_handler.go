@@ -285,7 +285,7 @@ func filterByMaxBedrooms(listings []*domain.Listing, maxBedrooms int) []*domain.
 // @Router       /listings/health [get]
 func (h *ListingHandler) HealthCheck(c *gin.Context) {
 	// Check database connection by attempting to list listings
-	_, err := h.repo.List()
+	err := h.repo.Ping()
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"status": "unhealthy",
