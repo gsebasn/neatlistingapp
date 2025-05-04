@@ -255,3 +255,11 @@ func (r *MongoRepository[T]) Count() (int64, error) {
 func (r *MongoRepository[T]) Close(ctx context.Context) error {
 	return r.client.Disconnect(ctx)
 }
+
+// Ping checks if the database connection is alive
+func (r *MongoRepository[T]) Ping() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	return r.client.Ping(ctx, nil)
+}

@@ -114,4 +114,5 @@ type ListingRepository interface {
 	Update(listing *Listing) error
 	Delete(id string) error
 	List() ([]*Listing, error)
+	Ping() error
 }
