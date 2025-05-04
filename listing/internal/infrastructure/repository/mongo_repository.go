@@ -13,11 +13,22 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// MongoRepository is a generic repository implementation for MongoDB
+// CollectionInterface defines the interface for MongoDB collection operations
+type CollectionInterface interface {
+	FindOne(ctx context.Context, filter interface{}, opts ...*options.FindOneOptions) *mongo.SingleResult
+	InsertOne(ctx context.Context, document interface{}, opts ...*options.InsertOneOptions) (*mongo.InsertOneResult, error)
+	ReplaceOne(ctx context.Context, filter interface{}, replacement interface{}, opts ...*options.ReplaceOptions) (*mongo.UpdateResult, error)
+	DeleteOne(ctx context.Context, filter interface{}, opts ...*options.DeleteOptions) (*mongo.DeleteResult, error)
+	Find(ctx context.Context, filter interface{}, opts ...*options.FindOptions) (*mongo.Cursor, error)
+	CountDocuments(ctx context.Context, filter interface{}, opts ...*options.CountOptions) (int64, error)
+	Name() string
+}
+
+// MongoRepository is a generic repository for MongoDB operations
 type MongoRepository[T any] struct {
 	client     *mongo.Client
 	database   *mongo.Database
-	collection *mongo.Collection
+	collection CollectionInterface
 }
 
 // NewMongoRepository creates a new instance of MongoRepository for a specific type
@@ -98,27 +109,7 @@ func (r *MongoRepository[T]) Create(document *T) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Convert document to BSON to check ID
-	doc, err := bson.Marshal(document)
-	if err != nil {
-		return err
-	}
-
-	var docMap bson.M
-	if err := bson.Unmarshal(doc, &docMap); err != nil {
-		return err
-	}
-
-	// Check if document already exists
-	var existing T
-	err = r.collection.FindOne(ctx, bson.M{"_id": docMap["_id"]}).Decode(&existing)
-	if err == nil {
-		return errors.New("document already exists")
-	} else if err != mongo.ErrNoDocuments {
-		return err
-	}
-
-	_, err = r.collection.InsertOne(ctx, document)
+	_, err := r.collection.InsertOne(ctx, document)
 	return err
 }
 
@@ -254,4 +245,9 @@ func (r *MongoRepository[T]) Ping() error {
 	defer cancel()
 
 	return r.client.Ping(ctx, nil)
+}
+
+// SetCollection sets the collection for testing purposes
+func (r *MongoRepository[T]) SetCollection(collection CollectionInterface) {
+	r.collection = collection
 }
