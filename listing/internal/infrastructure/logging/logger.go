@@ -8,7 +8,7 @@ import (
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"gopkg.in/natefinch/lumberjack.v2"
+	lumber "gopkg.in/natefinch/lumberjack.v2"
 )
 
 // Logger wraps zap.Logger to provide application-specific logging
@@ -45,7 +45,7 @@ func New(cfg *config.Config) (*Logger, error) {
 		}
 
 		// Configure log rotation
-		rotator := &lumberjack.Logger{
+		rotator := &lumber.Logger{
 			Filename:   cfg.Logging.OutputPath,
 			MaxSize:    100, // megabytes
 			MaxBackups: 3,

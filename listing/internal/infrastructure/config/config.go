@@ -300,60 +300,6 @@ func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
 	return duration
 }
 
-// getIntEnv gets an integer from an environment variable or returns a default value
-func getIntEnv(key string, defaultValue int) int {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-
-	intValue, err := strconv.Atoi(value)
-	if err != nil {
-		fmt.Printf("Warning: Invalid integer format for %s, using default: %d\n", key, defaultValue)
-		return defaultValue
-	}
-	return intValue
-}
-
-// getStringSliceEnv gets a string slice from an environment variable or returns a default value
-func getStringSliceEnv(key string, defaultValue []string) []string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-
-	// Split by comma and trim spaces
-	values := strings.Split(value, ",")
-	for i, v := range values {
-		values[i] = strings.TrimSpace(v)
-	}
-	return values
-}
-
-// getDefaultBodySizeLimit returns the default body size limit for the environment
-func getDefaultBodySizeLimit(env Environment) int64 {
-	switch env {
-	case Production:
-		return 1024 // 1KB
-	case Test:
-		return 1024 * 10 // 10KB
-	default:
-		return 1024 * 100 // 100KB
-	}
-}
-
-// getDefaultMaskedFields returns the default masked fields for the environment
-func getDefaultMaskedFields(env Environment) []string {
-	switch env {
-	case Production:
-		return []string{"password", "token", "secret", "key", "authorization"}
-	case Test:
-		return []string{"password", "token"}
-	default:
-		return []string{"password"}
-	}
-}
-
 // getInt64Env gets an int64 from an environment variable or returns a default value
 func getInt64Env(key string, defaultValue int64) int64 {
 	value := os.Getenv(key)
@@ -367,6 +313,37 @@ func getInt64Env(key string, defaultValue int64) int64 {
 		return defaultValue
 	}
 	return intValue
+}
+
+// getStringSliceEnv gets a string slice from an environment variable or returns a default value
+func getStringSliceEnv(key string, defaultValue []string) []string {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	return strings.Split(value, ",")
+}
+
+// getDefaultBodySizeLimit returns the default body size limit for the environment
+func getDefaultBodySizeLimit(env Environment) int64 {
+	switch env {
+	case Production:
+		return 1024 * 1024 // 1MB
+	default:
+		return 10 * 1024 * 1024 // 10MB
+	}
+}
+
+// getDefaultMaskedFields returns the default masked fields for the environment
+func getDefaultMaskedFields(env Environment) []string {
+	switch env {
+	case Production:
+		return []string{"password", "token", "secret", "key", "authorization"}
+	case Test:
+		return []string{"password", "token"}
+	default:
+		return []string{"password"}
+	}
 }
 
 // getDefaultMaskPattern returns the default mask pattern for the environment

@@ -79,16 +79,13 @@ func (r *MongoRepository[T]) GetByID(id string) (*T, error) {
 		return nil, fmt.Errorf("error finding document: %v", err)
 	}
 
-	// Convert bson.D to bson.M for easier handling
-	docMap := rawDoc.Map()
-
-	// Create a new instance of T
-	var doc T
-	docBytes, err := bson.Marshal(docMap)
+	// Convert bson.D to target type using Marshal/Unmarshal
+	docBytes, err := bson.Marshal(rawDoc)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling document: %v", err)
 	}
 
+	var doc T
 	if err := bson.Unmarshal(docBytes, &doc); err != nil {
 		return nil, fmt.Errorf("error unmarshaling document: %v", err)
 	}
@@ -197,20 +194,15 @@ func (r *MongoRepository[T]) List() ([]*T, error) {
 	// Convert raw documents to target type
 	documents := make([]*T, 0, len(rawDocs))
 	for i, rawDoc := range rawDocs {
-		// Convert bson.D to bson.M for easier handling
-		docMap := rawDoc.Map()
-
-		// Create a new instance of T
-		var doc T
-		docBytes, err := bson.Marshal(docMap)
+		// Convert bson.D to target type using Marshal/Unmarshal
+		docBytes, err := bson.Marshal(rawDoc)
 		if err != nil {
-			fmt.Printf("Error marshaling document %d: %v\n", i, err)
-			continue
+			return nil, fmt.Errorf("error marshaling document %d: %v", i, err)
 		}
 
+		var doc T
 		if err := bson.Unmarshal(docBytes, &doc); err != nil {
-			fmt.Printf("Error unmarshaling document %d: %v\n", i, err)
-			continue
+			return nil, fmt.Errorf("error unmarshaling document %d: %v", i, err)
 		}
 
 		documents = append(documents, &doc)

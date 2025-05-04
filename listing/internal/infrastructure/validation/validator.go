@@ -5,17 +5,17 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/go-playground/validator/v10"
+	val "github.com/go-playground/validator/v10"
 )
 
 // Validator is a wrapper around validator.Validate with custom rules
 type Validator struct {
-	validate *validator.Validate
+	validate *val.Validate
 }
 
 // New creates a new Validator instance with custom rules
 func New() *Validator {
-	v := validator.New()
+	v := val.New()
 
 	// Register custom validators
 	v.RegisterValidation("notempty", notEmpty)
@@ -40,13 +40,13 @@ func (v *Validator) Validate(i interface{}) error {
 }
 
 // notEmpty validates that a string is not empty after trimming
-func notEmpty(fl validator.FieldLevel) bool {
+func notEmpty(fl val.FieldLevel) bool {
 	value := fl.Field().String()
 	return strings.TrimSpace(value) != ""
 }
 
 // validatePrice validates that a price is positive and has at most 2 decimal places
-func validatePrice(fl validator.FieldLevel) bool {
+func validatePrice(fl val.FieldLevel) bool {
 	value := fl.Field().Float()
 	if value <= 0 {
 		return false
@@ -57,7 +57,7 @@ func validatePrice(fl validator.FieldLevel) bool {
 }
 
 // validateCoordinates validates that coordinates are within valid ranges
-func validateCoordinates(fl validator.FieldLevel) bool {
+func validateCoordinates(fl val.FieldLevel) bool {
 	value := fl.Field().Float()
 	return value >= -180 && value <= 180
 }
@@ -104,7 +104,7 @@ func TranslateValidationErrors(err error) ValidationResponse {
 		}
 	}
 
-	validationErrors, ok := err.(validator.ValidationErrors)
+	validationErrors, ok := err.(val.ValidationErrors)
 	if !ok {
 		return ValidationResponse{
 			Errors: ValidationErrors{{
