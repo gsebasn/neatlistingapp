@@ -8,6 +8,7 @@ import (
 	"watcher/interfaces"
 
 	"github.com/typesense/typesense-go/typesense"
+	"github.com/typesense/typesense-go/typesense/api"
 )
 
 type TypesenseService struct {
@@ -34,8 +35,8 @@ func (t *TypesenseService) DeleteDocument(ctx context.Context, collection string
 }
 
 func (t *TypesenseService) ImportDocuments(ctx context.Context, collection string, documents []interface{}, action string) error {
-	_, err := t.client.Collection(collection).Documents().Import(ctx, documents, &typesense.ImportDocumentsParams{
-		Action: action,
+	_, err := t.client.Collection(collection).Documents().Import(ctx, documents, &api.ImportDocumentsParams{
+		Action: &action,
 	})
 	return err
 }

@@ -81,6 +81,7 @@ func (w *EventProcessorImpl) accumulateEvents() {
 			}
 			w.mu.Unlock()
 		case <-w.done:
+			close(w.eventChan)
 			return
 		}
 	}
@@ -111,49 +112,59 @@ func (w *EventProcessorImpl) setRemainingBuffer(batch []interfaces.Event, i int)
 func (w *EventProcessorImpl) processBatch() {
 	defer func() {
 		w.mu.Lock()
-		// After processing, move accumulating buffer to active buffer
+		// After processing, move accumulating buffer to active buffer and add remaining buffer to the start of the active buffer
 		w.activeBuffer = append(w.remainingBuffer, w.accumulatingBuffer...)
+		// Clear the accumulating buffer and remaining buffer
 		w.accumulatingBuffer = make([]interfaces.Event, 0)
+		w.remainingBuffer = make([]interfaces.Event, 0)
 		w.isProcessing = false
 		w.mu.Unlock()
 	}()
 
 	w.mu.Lock()
+
 	// Create a copy of the current buffer for processing
 	batch := make([]interfaces.Event, len(w.activeBuffer))
 	copy(batch, w.activeBuffer)
-	w.activeBuffer = w.activeBuffer[:0] // Clear the active buffer
+
+	// Clear the active buffer
+	w.activeBuffer = make([]interfaces.Event, 0)
 	w.mu.Unlock()
 
 	// Process events in order
 	for i, event := range batch {
-		var err error
-		switch event.OperationType {
-		case "insert", "update":
-			err = retryOperation(context.Background(), func() error {
-				return w.typesenseClient.UpsertDocument(context.Background(), w.config.Typesense.CollectionName, event.Document)
-			}, w.config.Typesense.MaxRetries, w.config.Typesense.RetryBackoff)
+		select {
+		case <-w.done:
+			return
+		default:
+			var err error
+			switch event.OperationType {
+			case "insert", "update":
+				err = retryOperation(context.Background(), func() error {
+					return w.typesenseClient.UpsertDocument(context.Background(), w.config.Typesense.CollectionName, event.Document)
+				}, w.config.Typesense.MaxRetries, w.config.Typesense.RetryBackoff)
 
-			if err != nil {
-				log.Printf("Failed to upsert document in Typesense after %d retries (ID: %s): %v",
-					w.config.Typesense.MaxRetries, event.DocumentID, err)
+				if err != nil {
+					log.Printf("Failed to upsert document in Typesense after %d retries (ID: %s): %v",
+						w.config.Typesense.MaxRetries, event.DocumentID, err)
 
-				// Get all remaining events including the failed one
-				w.setRemainingBuffer(batch, i)
-				return
-			}
-		case "delete":
-			err = retryOperation(context.Background(), func() error {
-				return w.typesenseClient.DeleteDocument(context.Background(), w.config.Typesense.CollectionName, event.DocumentID)
-			}, w.config.Typesense.MaxRetries, w.config.Typesense.RetryBackoff)
+					// Get all remaining events including the failed one
+					w.setRemainingBuffer(batch, i)
+					return
+				}
+			case "delete":
+				err = retryOperation(context.Background(), func() error {
+					return w.typesenseClient.DeleteDocument(context.Background(), w.config.Typesense.CollectionName, event.DocumentID)
+				}, w.config.Typesense.MaxRetries, w.config.Typesense.RetryBackoff)
 
-			if err != nil {
-				log.Printf("Failed to delete document from Typesense after %d retries (ID: %s): %v",
-					w.config.Typesense.MaxRetries, event.DocumentID, err)
+				if err != nil {
+					log.Printf("Failed to delete document from Typesense after %d retries (ID: %s): %v",
+						w.config.Typesense.MaxRetries, event.DocumentID, err)
 
-				// Get all remaining events including the failed one
-				w.setRemainingBuffer(batch, i)
-				return
+					// Get all remaining events including the failed one
+					w.setRemainingBuffer(batch, i)
+					return
+				}
 			}
 		}
 	}
@@ -196,13 +207,6 @@ func (w *EventProcessorImpl) storeInRedis(events []interfaces.Event) {
 				log.Printf("Failed to store events in fallback: %v", err)
 			}
 		}
-	}
-}
-
-func (w *EventProcessorImpl) storeFailedEvents(events []interfaces.Event) {
-	ctx := context.Background()
-	if err := w.storeInFallback(ctx, events...); err != nil {
-		log.Printf("Failed to store failed events in fallback: %v", err)
 	}
 }
 
@@ -295,21 +299,28 @@ func (w *EventProcessorImpl) GetQueueHealth() QueueHealth {
 func (w *EventProcessorImpl) Close() {
 	close(w.done)
 	w.mu.Lock()
+
 	if len(w.activeBuffer) > 0 {
-		w.processBatch()
+		// Store remaining events in Redis and MongoDB
+		w.storeInRedis(w.activeBuffer)
+		if err := w.storeInFallback(context.Background(), w.activeBuffer...); err != nil {
+			log.Printf("Failed to store remaining events in fallback: %v", err)
+		}
 	}
 	w.mu.Unlock()
 }
 
 func retryOperation(ctx context.Context, operation func() error, maxRetries int, backoff time.Duration) error {
-	var err error
 	for i := 0; i < maxRetries; i++ {
-		if err = operation(); err == nil {
+		err := operation()
+		if err == nil {
 			return nil
 		}
-		time.Sleep(backoff)
+		if i < maxRetries-1 {
+			time.Sleep(backoff)
+		}
 	}
-	return err
+	return fmt.Errorf("operation failed after %d retries", maxRetries)
 }
 
 func ConnectToMongoDB(uri string) (*mongo.Client, error) {
