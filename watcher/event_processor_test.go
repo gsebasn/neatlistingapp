@@ -274,6 +274,7 @@ func TestEventProcessor_Enqueue(t *testing.T) {
 		fallbackMongo,
 		1000,
 		time.Second*5,
+		time.Second*10,
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, processor)
@@ -305,6 +306,7 @@ func TestEventProcessor_WithTypesenseErrors(t *testing.T) {
 		fallbackMongo,
 		1000,
 		time.Second*5,
+		time.Second*10,
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, processor)
@@ -322,7 +324,7 @@ func TestEventProcessor_WithTypesenseErrors(t *testing.T) {
 	assert.NoError(t, err) // Should not error as it's just queued
 }
 
-func TestEventProcessor_Close(t *testing.T) {
+func TestEventProcessor_FlushAndClose(t *testing.T) {
 	// Create initial events
 	initialEvents := []externalservices.MongoChangeEvent{
 		{OperationType: "insert", DocumentID: "1", Document: map[string]interface{}{"id": "1"}},
@@ -357,8 +359,8 @@ func TestEventProcessor_Close(t *testing.T) {
 	// Get the process busy channel
 	isProcessBusy := processor.GetProcessBusyState()
 
-	// Start Close in a goroutine since it blocks on processBusy
-	go processor.Close()
+	// Start FlushAndClose in a goroutine since it blocks on processBusy
+	go processor.FlushAndClose()
 
 	// Wait for processing to start
 	processing := <-isProcessBusy

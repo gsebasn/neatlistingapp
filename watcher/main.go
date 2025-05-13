@@ -66,7 +66,8 @@ func main() {
 		watchingMongoDBService,
 		fallbackMongoService,
 		config.MaxBufferSize,
-		time.Duration(config.FlushInterval)*time.Second,
+		time.Duration(config.ProcessInterval)*time.Second,
+		time.Duration(config.ProcessInterval)*time.Second*2,
 	)
 	if err != nil {
 		log.Fatalf("Failed to initialize event processor: %v", err)

@@ -19,11 +19,13 @@ type EventProcessor struct {
 	watchingMongoDBService externalservices.MongoServiceContract
 	fallbackMongoService   externalservices.MongoServiceContract
 	ticker                 *time.Ticker
+	backupFlushTicker      *time.Ticker
 	done                   chan struct{}
 	eventChan              chan externalservices.MongoChangeEvent
 	backupFlusher          BackupFlusherContract
 	maxBufferSize          int
 	processInterval        time.Duration
+	backupFlushInterval    time.Duration
 	stopChan               chan struct{}
 	processBusy            chan bool
 }
@@ -36,6 +38,7 @@ func NewEventProcessor(
 	fallbackMongoService externalservices.MongoServiceContract,
 	maxBufferSize int,
 	processInterval time.Duration,
+	backupFlushInterval time.Duration,
 ) (*EventProcessor, error) {
 
 	backupFlusher := NewBackupFlusher(
@@ -58,13 +61,16 @@ func NewEventProcessor(
 		backupFlusher:          backupFlusher,
 		maxBufferSize:          maxBufferSize,
 		processInterval:        processInterval,
+		backupFlushInterval:    backupFlushInterval,
 		stopChan:               make(chan struct{}),
 		processBusy:            make(chan bool, 1),
 	}
 
 	processor.ticker = time.NewTicker(processInterval)
+	processor.backupFlushTicker = time.NewTicker(backupFlushInterval)
 	go processor.accumulateEvents()
 	go processor.startProcessingTimer()
+	go processor.startBackupFlushTimer()
 
 	return processor, nil
 }
@@ -156,7 +162,8 @@ func (w *EventProcessor) Enqueue(ctx context.Context, event externalservices.Mon
 	}
 }
 
-func (w *EventProcessor) Close() {
+// FlushAndClose flushes any remaining events to backup and then closes the processor.
+func (w *EventProcessor) FlushAndClose() {
 	// First close the done channel to stop event accumulation
 	close(w.done)
 
@@ -199,10 +206,40 @@ func (w *EventProcessor) startProcessingTimer() {
 	}
 }
 
+func (w *EventProcessor) startBackupFlushTimer() {
+	for {
+		select {
+		case <-w.backupFlushTicker.C:
+			w.mu.Lock()
+			if len(w.activeBuffer) > 0 {
+
+				// Create a copy of the buffer for flushing
+				events := make([]externalservices.MongoChangeEvent, len(w.activeBuffer))
+				copy(events, w.activeBuffer)
+				w.mu.Unlock()
+
+				// Flush to backup
+				w.backupFlusher.Flush(events)
+				w.lastFlush = time.Now()
+			} else {
+				w.mu.Unlock()
+			}
+		case <-w.stopChan:
+			w.backupFlushTicker.Stop()
+			return
+		case <-w.done:
+			w.backupFlushTicker.Stop()
+			return
+		}
+	}
+}
+
 // Stop gracefully stops the event processor
 func (e *EventProcessor) Stop() {
 	close(e.stopChan)
 	close(e.done)
+	e.ticker.Stop()
+	e.backupFlushTicker.Stop()
 }
 
 // GetProcessBusyState returns a channel that signals whether the processor is currently busy processing

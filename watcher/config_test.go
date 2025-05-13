@@ -20,7 +20,7 @@ func setupConfigTestEnv() {
 	// Buffer settings
 	os.Setenv("MAX_BUFFER_SIZE", "1000")
 	os.Setenv("BATCH_SIZE", "100")
-	os.Setenv("FLUSH_INTERVAL", "5")
+	os.Setenv("PROCESS_INTERVAL", "5")
 
 	// Primary Redis
 	os.Setenv("PRIMARY_REDIS_HOST", "localhost")
@@ -78,7 +78,7 @@ func teardownConfigTestEnv() {
 	// Buffer settings
 	os.Unsetenv("MAX_BUFFER_SIZE")
 	os.Unsetenv("BATCH_SIZE")
-	os.Unsetenv("FLUSH_INTERVAL")
+	os.Unsetenv("PROCESS_INTERVAL")
 
 	// Primary Redis
 	os.Unsetenv("PRIMARY_REDIS_HOST")
@@ -144,7 +144,7 @@ func TestConfigLoader(t *testing.T) {
 		// Test buffer settings
 		assert.Equal(t, 1000, config.MaxBufferSize)
 		assert.Equal(t, 100, config.BatchSize)
-		assert.Equal(t, 5, config.FlushInterval)
+		assert.Equal(t, 5, config.ProcessInterval)
 
 		// Test Primary Redis config
 		assert.Equal(t, "localhost", config.PrimaryRedis.Host)

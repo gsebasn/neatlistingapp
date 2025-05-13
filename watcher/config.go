@@ -50,12 +50,12 @@ type Config struct {
 	FallbackMongoDatabase   string
 	FallbackMongoCollection string
 
-	Typesense      TypesenseConfig
-	MaxBufferSize  int
-	BatchSize      int
-	FlushInterval  int
-	PrimaryRedis   RedisConfig
-	SecondaryRedis RedisConfig
+	Typesense       TypesenseConfig
+	MaxBufferSize   int
+	BatchSize       int
+	ProcessInterval int
+	PrimaryRedis    RedisConfig
+	SecondaryRedis  RedisConfig
 }
 
 func LoadConfig() (*Config, error) {
@@ -72,9 +72,9 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("invalid BATCH_SIZE: %v", err)
 	}
 
-	flushInterval, err := strconv.Atoi(os.Getenv("FLUSH_INTERVAL"))
+	processInterval, err := strconv.Atoi(os.Getenv("PROCESS_INTERVAL"))
 	if err != nil {
-		return nil, fmt.Errorf("invalid FLUSH_INTERVAL: %v", err)
+		return nil, fmt.Errorf("invalid PROCESS_INTERVAL: %v", err)
 	}
 
 	primaryRedisDB, err := strconv.Atoi(os.Getenv("PRIMARY_REDIS_DB"))
@@ -200,9 +200,9 @@ func LoadConfig() (*Config, error) {
 			MaxRetries:        typesenseMaxRetries,
 			RetryBackoff:      typesenseRetryBackoff,
 		},
-		MaxBufferSize: maxBufferSize,
-		BatchSize:     batchSize,
-		FlushInterval: flushInterval,
+		MaxBufferSize:   maxBufferSize,
+		BatchSize:       batchSize,
+		ProcessInterval: processInterval,
 		PrimaryRedis: RedisConfig{
 			Host:            os.Getenv("PRIMARY_REDIS_HOST"),
 			Port:            os.Getenv("PRIMARY_REDIS_PORT"),
