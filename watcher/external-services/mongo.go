@@ -4,17 +4,39 @@ import (
 	"context"
 	"fmt"
 
-	"watcher/interfaces"
-
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+// ChangeStream represents a MongoDB change stream
+type ChangeStream interface {
+	Next(ctx context.Context) bool
+	Decode(val interface{}) error
+	Close(ctx context.Context) error
+	Err() error
+}
+
+// MongoServiceContract defines the interface for MongoDB operations
+type MongoServiceContract interface {
+	Connect(ctx context.Context) error
+	Disconnect(ctx context.Context) error
+	Watch(ctx context.Context, pipeline interface{}, opts ...*options.ChangeStreamOptions) (ChangeStream, error)
+	GetCollection() *mongo.Collection
+}
 
 type MongoService struct {
 	client     *mongo.Client
 	database   string
 	collection string
 	uri        string
+}
+
+// MongoChangeEvent represents a MongoDB change event
+type MongoChangeEvent struct {
+	OperationType string
+	Document      interface{}
+	DocumentID    string
+	Timestamp     int64
 }
 
 func NewMongoService(uri, database, collection string) *MongoService {
@@ -42,7 +64,7 @@ func (m *MongoService) Disconnect(ctx context.Context) error {
 	return nil
 }
 
-func (m *MongoService) Watch(ctx context.Context, pipeline interface{}, opts ...*options.ChangeStreamOptions) (interfaces.ChangeStream, error) {
+func (m *MongoService) Watch(ctx context.Context, pipeline interface{}, opts ...*options.ChangeStreamOptions) (ChangeStream, error) {
 	if m.client == nil {
 		return nil, fmt.Errorf("client not connected")
 	}
@@ -76,8 +98,12 @@ func (m *MongoChangeStream) Err() error {
 	return m.stream.Err()
 }
 
-// Ensure MongoService implements interfaces.MongoDBClient
-var _ interfaces.MongoDBClient = (*MongoService)(nil)
+func (m *MongoService) GetCollection() *mongo.Collection {
+	return m.client.Database(m.database).Collection(m.collection)
+}
 
-// Ensure MongoChangeStream implements interfaces.ChangeStream
-var _ interfaces.ChangeStream = (*MongoChangeStream)(nil)
+// Ensure MongoService implements MongoServiceContract
+var _ MongoServiceContract = (*MongoService)(nil)
+
+// Ensure MongoChangeStream implements ChangeStream
+var _ ChangeStream = (*MongoChangeStream)(nil)

@@ -40,15 +40,22 @@ type TypesenseConfig struct {
 }
 
 type Config struct {
-	MongoURI        string
-	MongoDatabase   string
-	MongoCollection string
-	Typesense       TypesenseConfig
-	MaxBufferSize   int
-	BatchSize       int
-	FlushInterval   int
-	PrimaryRedis    RedisConfig
-	BackupRedis     RedisConfig
+	// Primary MongoDB (for watching changes)
+	PrimaryMongoURI        string
+	PrimaryMongoDatabase   string
+	PrimaryMongoCollection string
+
+	// Fallback MongoDB (for backup storage)
+	FallbackMongoURI        string
+	FallbackMongoDatabase   string
+	FallbackMongoCollection string
+
+	Typesense      TypesenseConfig
+	MaxBufferSize  int
+	BatchSize      int
+	FlushInterval  int
+	PrimaryRedis   RedisConfig
+	SecondaryRedis RedisConfig
 }
 
 func LoadConfig() (*Config, error) {
@@ -75,9 +82,9 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("invalid PRIMARY_REDIS_DB: %v", err)
 	}
 
-	backupRedisDB, err := strconv.Atoi(os.Getenv("BACKUP_REDIS_DB"))
+	secondaryRedisDB, err := strconv.Atoi(os.Getenv("SECONDARY_REDIS_DB"))
 	if err != nil {
-		return nil, fmt.Errorf("invalid BACKUP_REDIS_DB: %v", err)
+		return nil, fmt.Errorf("invalid SECONDARY_REDIS_DB: %v", err)
 	}
 
 	primaryPoolSize, err := strconv.Atoi(os.Getenv("PRIMARY_REDIS_POOL_SIZE"))
@@ -85,9 +92,9 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("invalid PRIMARY_REDIS_POOL_SIZE: %v", err)
 	}
 
-	backupPoolSize, err := strconv.Atoi(os.Getenv("BACKUP_REDIS_POOL_SIZE"))
+	secondaryPoolSize, err := strconv.Atoi(os.Getenv("SECONDARY_REDIS_POOL_SIZE"))
 	if err != nil {
-		return nil, fmt.Errorf("invalid BACKUP_REDIS_POOL_SIZE: %v", err)
+		return nil, fmt.Errorf("invalid SECONDARY_REDIS_POOL_SIZE: %v", err)
 	}
 
 	primaryMinIdleConns, err := strconv.Atoi(os.Getenv("PRIMARY_REDIS_MIN_IDLE_CONNS"))
@@ -95,9 +102,9 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("invalid PRIMARY_REDIS_MIN_IDLE_CONNS: %v", err)
 	}
 
-	backupMinIdleConns, err := strconv.Atoi(os.Getenv("BACKUP_REDIS_MIN_IDLE_CONNS"))
+	secondaryMinIdleConns, err := strconv.Atoi(os.Getenv("SECONDARY_REDIS_MIN_IDLE_CONNS"))
 	if err != nil {
-		return nil, fmt.Errorf("invalid BACKUP_REDIS_MIN_IDLE_CONNS: %v", err)
+		return nil, fmt.Errorf("invalid SECONDARY_REDIS_MIN_IDLE_CONNS: %v", err)
 	}
 
 	primaryMaxRetries, err := strconv.Atoi(os.Getenv("PRIMARY_REDIS_MAX_RETRIES"))
@@ -105,9 +112,9 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("invalid PRIMARY_REDIS_MAX_RETRIES: %v", err)
 	}
 
-	backupMaxRetries, err := strconv.Atoi(os.Getenv("BACKUP_REDIS_MAX_RETRIES"))
+	secondaryMaxRetries, err := strconv.Atoi(os.Getenv("SECONDARY_REDIS_MAX_RETRIES"))
 	if err != nil {
-		return nil, fmt.Errorf("invalid BACKUP_REDIS_MAX_RETRIES: %v", err)
+		return nil, fmt.Errorf("invalid SECONDARY_REDIS_MAX_RETRIES: %v", err)
 	}
 
 	primaryRetryBackoff, err := time.ParseDuration(os.Getenv("PRIMARY_REDIS_RETRY_BACKOFF"))
@@ -115,9 +122,9 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("invalid PRIMARY_REDIS_RETRY_BACKOFF: %v", err)
 	}
 
-	backupRetryBackoff, err := time.ParseDuration(os.Getenv("BACKUP_REDIS_RETRY_BACKOFF"))
+	secondaryRetryBackoff, err := time.ParseDuration(os.Getenv("SECONDARY_REDIS_RETRY_BACKOFF"))
 	if err != nil {
-		return nil, fmt.Errorf("invalid BACKUP_REDIS_RETRY_BACKOFF: %v", err)
+		return nil, fmt.Errorf("invalid SECONDARY_REDIS_RETRY_BACKOFF: %v", err)
 	}
 
 	primaryConnMaxLifetime, err := time.ParseDuration(os.Getenv("PRIMARY_REDIS_CONN_MAX_LIFETIME"))
@@ -125,9 +132,9 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("invalid PRIMARY_REDIS_CONN_MAX_LIFETIME: %v", err)
 	}
 
-	backupConnMaxLifetime, err := time.ParseDuration(os.Getenv("BACKUP_REDIS_CONN_MAX_LIFETIME"))
+	secondaryConnMaxLifetime, err := time.ParseDuration(os.Getenv("SECONDARY_REDIS_CONN_MAX_LIFETIME"))
 	if err != nil {
-		return nil, fmt.Errorf("invalid BACKUP_REDIS_CONN_MAX_LIFETIME: %v", err)
+		return nil, fmt.Errorf("invalid SECONDARY_REDIS_CONN_MAX_LIFETIME: %v", err)
 	}
 
 	typesenseConnectionTimeout, err := time.ParseDuration(os.Getenv("TYPESENSE_CONNECTION_TIMEOUT"))
@@ -156,9 +163,9 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("invalid PRIMARY_REDIS_SAVE_INTERVAL: %v", err)
 	}
 
-	backupSaveInterval, err := time.ParseDuration(os.Getenv("BACKUP_REDIS_SAVE_INTERVAL"))
+	secondarySaveInterval, err := time.ParseDuration(os.Getenv("SECONDARY_REDIS_SAVE_INTERVAL"))
 	if err != nil {
-		return nil, fmt.Errorf("invalid BACKUP_REDIS_SAVE_INTERVAL: %v", err)
+		return nil, fmt.Errorf("invalid SECONDARY_REDIS_SAVE_INTERVAL: %v", err)
 	}
 
 	primaryAppendOnly, err := strconv.ParseBool(os.Getenv("PRIMARY_REDIS_APPEND_ONLY"))
@@ -166,15 +173,22 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("invalid PRIMARY_REDIS_APPEND_ONLY: %v", err)
 	}
 
-	backupAppendOnly, err := strconv.ParseBool(os.Getenv("BACKUP_REDIS_APPEND_ONLY"))
+	secondaryAppendOnly, err := strconv.ParseBool(os.Getenv("SECONDARY_REDIS_APPEND_ONLY"))
 	if err != nil {
-		return nil, fmt.Errorf("invalid BACKUP_REDIS_APPEND_ONLY: %v", err)
+		return nil, fmt.Errorf("invalid SECONDARY_REDIS_APPEND_ONLY: %v", err)
 	}
 
 	return &Config{
-		MongoURI:        os.Getenv("MONGODB_URI"),
-		MongoDatabase:   os.Getenv("MONGODB_DATABASE"),
-		MongoCollection: os.Getenv("MONGODB_COLLECTION"),
+		// Primary MongoDB config
+		PrimaryMongoURI:        os.Getenv("PRIMARY_MONGODB_URI"),
+		PrimaryMongoDatabase:   os.Getenv("PRIMARY_MONGODB_DATABASE"),
+		PrimaryMongoCollection: os.Getenv("PRIMARY_MONGODB_COLLECTION"),
+
+		// Fallback MongoDB config
+		FallbackMongoURI:        os.Getenv("FALLBACK_MONGODB_URI"),
+		FallbackMongoDatabase:   os.Getenv("FALLBACK_MONGODB_DATABASE"),
+		FallbackMongoCollection: os.Getenv("FALLBACK_MONGODB_COLLECTION"),
+
 		Typesense: TypesenseConfig{
 			APIKey:            os.Getenv("TYPESENSE_API_KEY"),
 			Host:              os.Getenv("TYPESENSE_HOST"),
@@ -205,21 +219,21 @@ func LoadConfig() (*Config, error) {
 			AppendFilename:  os.Getenv("PRIMARY_REDIS_APPEND_FILENAME"),
 			RDBFilename:     os.Getenv("PRIMARY_REDIS_RDB_FILENAME"),
 		},
-		BackupRedis: RedisConfig{
-			Host:            os.Getenv("BACKUP_REDIS_HOST"),
-			Port:            os.Getenv("BACKUP_REDIS_PORT"),
-			Password:        os.Getenv("BACKUP_REDIS_PASSWORD"),
-			DB:              backupRedisDB,
-			QueueKey:        os.Getenv("BACKUP_REDIS_QUEUE_KEY"),
-			PoolSize:        backupPoolSize,
-			MinIdleConns:    backupMinIdleConns,
-			MaxRetries:      backupMaxRetries,
-			RetryBackoff:    backupRetryBackoff,
-			ConnMaxLifetime: backupConnMaxLifetime,
-			SaveInterval:    backupSaveInterval,
-			AppendOnly:      backupAppendOnly,
-			AppendFilename:  os.Getenv("BACKUP_REDIS_APPEND_FILENAME"),
-			RDBFilename:     os.Getenv("BACKUP_REDIS_RDB_FILENAME"),
+		SecondaryRedis: RedisConfig{
+			Host:            os.Getenv("SECONDARY_REDIS_HOST"),
+			Port:            os.Getenv("SECONDARY_REDIS_PORT"),
+			Password:        os.Getenv("SECONDARY_REDIS_PASSWORD"),
+			DB:              secondaryRedisDB,
+			QueueKey:        os.Getenv("SECONDARY_REDIS_QUEUE_KEY"),
+			PoolSize:        secondaryPoolSize,
+			MinIdleConns:    secondaryMinIdleConns,
+			MaxRetries:      secondaryMaxRetries,
+			RetryBackoff:    secondaryRetryBackoff,
+			ConnMaxLifetime: secondaryConnMaxLifetime,
+			SaveInterval:    secondarySaveInterval,
+			AppendOnly:      secondaryAppendOnly,
+			AppendFilename:  os.Getenv("SECONDARY_REDIS_APPEND_FILENAME"),
+			RDBFilename:     os.Getenv("SECONDARY_REDIS_RDB_FILENAME"),
 		},
 	}, nil
 }

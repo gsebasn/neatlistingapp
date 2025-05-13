@@ -3,256 +3,509 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
-	"sync"
 	"testing"
 	"time"
+	externalservices "watcher/external-services"
 
-	"watcher/interfaces"
+	"github.com/stretchr/testify/assert"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// MockTypesenseClient implements interfaces.TypesenseClient for testing
-type MockTypesenseClient struct {
+// TestTypesenseService is a test-specific implementation of TypesenseClient
+type TestTypesenseService struct {
 	upsertErr error
 	deleteErr error
 }
 
-func (m *MockTypesenseClient) UpsertDocument(ctx context.Context, collection string, document interface{}) error {
+func NewTestTypesenseService() externalservices.TypesenseServiceContract {
+	return &TestTypesenseService{}
+}
+
+func (t *TestTypesenseService) UpsertDocument(ctx context.Context, document interface{}) error {
 	if document == nil || (reflect.ValueOf(document).Kind() == reflect.Map && reflect.ValueOf(document).IsNil()) {
 		return errors.New("document is nil")
 	}
-	return nil
+	return t.upsertErr
 }
 
-func (m *MockTypesenseClient) DeleteDocument(ctx context.Context, collection string, documentID string) error {
+func (t *TestTypesenseService) DeleteDocument(ctx context.Context, documentID string) error {
 	if documentID == "" {
 		return errors.New("documentID is empty")
 	}
+	return t.deleteErr
+}
+
+func (t *TestTypesenseService) ImportDocuments(ctx context.Context, documents []interface{}, action string) error {
 	return nil
 }
 
-func (m *MockTypesenseClient) ImportDocuments(ctx context.Context, collection string, documents []interface{}, action string) error {
+// TestRedisService is a test-specific implementation of RedisClient
+type TestRedisService struct {
+	rpushErr       error
+	lpopErr        error
+	llenErr        error
+	lastRPushValue interface{}
+}
+
+func NewTestRedisService() externalservices.RedisServiceContract {
+	return &TestRedisService{}
+}
+
+func (t *TestRedisService) RPush(ctx context.Context, value interface{}) error {
+	t.lastRPushValue = value
+	return t.rpushErr
+}
+
+func (t *TestRedisService) LPop(ctx context.Context) (string, error) {
+	return "", t.lpopErr
+}
+
+func (t *TestRedisService) LLen(ctx context.Context) (int64, error) {
+	return 0, t.llenErr
+}
+
+func (t *TestRedisService) ConfigSet(ctx context.Context, parameter, value string) error {
 	return nil
 }
 
-// MockRedisClient implements interfaces.RedisClient for testing
-type MockRedisClient struct {
-	rpushErr error
-	lpopErr  error
-	llenErr  error
-}
-
-func (m *MockRedisClient) RPush(ctx context.Context, key string, value interface{}) error {
-	return m.rpushErr
-}
-
-func (m *MockRedisClient) LPop(ctx context.Context, key string) (string, error) {
-	return "", m.lpopErr
-}
-
-func (m *MockRedisClient) LLen(ctx context.Context, key string) (int64, error) {
-	return 0, m.llenErr
-}
-
-func (m *MockRedisClient) ConfigSet(ctx context.Context, parameter, value string) error {
+func (t *TestRedisService) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (m *MockRedisClient) Ping(ctx context.Context) error {
-	return nil
+// TestMongoService is a test-specific implementation of MongoDBClient
+type TestMongoService struct {
+	collection *mongo.Collection
+	client     *mongo.Client
 }
-func TestProcessBatchBufferManagement(t *testing.T) {
-	config := &Config{
-		Typesense: TypesenseConfig{
-			CollectionName: "test",
-			MaxRetries:     1,
-			RetryBackoff:   time.Millisecond * 100,
-		},
+
+func NewTestMongoService() externalservices.MongoServiceContract {
+	// Create a mock client and collection for testing
+	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb://localhost:27017"))
+	if err != nil {
+		// For testing purposes, we'll just return a service with nil client/collection
+		// The test will handle the error appropriately
+		return &TestMongoService{}
 	}
 
+	collection := client.Database("test").Collection("test")
+	return &TestMongoService{
+		client:     client,
+		collection: collection,
+	}
+}
+
+func (t *TestMongoService) Connect(ctx context.Context) error {
+	if t.client == nil {
+		return fmt.Errorf("mock client not initialized")
+	}
+	return nil
+}
+
+func (t *TestMongoService) Disconnect(ctx context.Context) error {
+	if t.client != nil {
+		return t.client.Disconnect(ctx)
+	}
+	return nil
+}
+
+func (t *TestMongoService) Watch(ctx context.Context, pipeline interface{}, opts ...*options.ChangeStreamOptions) (externalservices.ChangeStream, error) {
+	return nil, nil
+}
+
+func (t *TestMongoService) GetCollection() *mongo.Collection {
+	return t.collection
+}
+
+// TestBackupFlusher is a mock implementation of BackupFlusher for testing
+type TestBackupFlusher struct {
+	lastFlushedEvents []externalservices.MongoChangeEvent
+	flushCalled       bool
+}
+
+// Ensure TestBackupFlusher implements BackupFlusherContract
+var _ BackupFlusherContract = (*TestBackupFlusher)(nil)
+
+func NewTestBackupFlusher() *TestBackupFlusher {
+	return &TestBackupFlusher{}
+}
+
+func (b *TestBackupFlusher) Flush(events []externalservices.MongoChangeEvent) {
+	b.lastFlushedEvents = make([]externalservices.MongoChangeEvent, len(events))
+	copy(b.lastFlushedEvents, events)
+	b.flushCalled = true
+}
+
+// TestEventProcessor is a test-specific version of EventProcessor that allows method overrides
+type TestEventProcessor struct {
+	*EventProcessor
+	processBatchFunc func()
+}
+
+func (t *TestEventProcessor) processBatch() {
+	if t.processBatchFunc != nil {
+		t.processBatchFunc()
+	} else {
+		t.EventProcessor.processBatch()
+	}
+}
+
+func (t *TestEventProcessor) startProcessingTimer() {
+	for {
+		select {
+		case <-t.ticker.C:
+			t.mu.Lock()
+			// Only process if we have events
+			if len(t.activeBuffer) > 0 {
+				go t.processBatch() // This will use our overridden method
+			}
+			t.mu.Unlock()
+		case <-t.stopChan:
+			t.ticker.Stop()
+			return
+		case <-t.done:
+			t.ticker.Stop()
+			return
+		}
+	}
+}
+
+func TestProcessBatchBufferManagement(t *testing.T) {
 	// Create initial events
-	initialEvents := []interfaces.Event{
+	initialEvents := []externalservices.MongoChangeEvent{
 		{OperationType: "insert", DocumentID: "1", Document: map[string]interface{}{"id": "1"}},
 		{OperationType: "update", DocumentID: "2", Document: map[string]interface{}{"id": "2"}},
 	}
 
-	// Create events that will be added to accumulating buffer during processing
-	accumulatingEvents := []interfaces.Event{
-		{OperationType: "insert", DocumentID: "3", Document: map[string]interface{}{"id": "3"}},
-		{OperationType: "update", DocumentID: "4", Document: map[string]interface{}{"id": "4"}},
-	}
-
-	processor := &EventProcessorImpl{
-		activeBuffer:       make([]interfaces.Event, len(initialEvents)),
-		accumulatingBuffer: make([]interfaces.Event, 0),
-		remainingBuffer:    make([]interfaces.Event, 0),
-		config:             config,
-		typesenseClient:    &MockTypesenseClient{},
-		redisClient:        &MockRedisClient{},
-		isProcessing:       true,
+	mockRedis := NewTestRedisService()
+	processor := &EventProcessor{
+		activeBuffer:           make([]externalservices.MongoChangeEvent, len(initialEvents)),
+		remainingBuffer:        make([]externalservices.MongoChangeEvent, 0),
+		typesenseService:       NewTestTypesenseService(),
+		primaryRedis:           mockRedis,
+		backupRedis:            NewTestRedisService(),
+		watchingMongoDBService: &TestMongoService{},
+		fallbackMongoService:   &TestMongoService{},
+		processBusy:            make(chan bool, 1), // Initialize the channel
 	}
 
 	// Copy initial events to active buffer
 	copy(processor.activeBuffer, initialEvents)
 
-	// Create a channel to signal when processing has started
-	processingStarted := make(chan struct{})
-	// Create a channel to signal when we've added accumulating events
-	accumulatingAdded := make(chan struct{})
-
-	var wg sync.WaitGroup
-	wg.Add(1)
+	// Get the process busy channel
+	isProcessBusy := processor.GetProcessBusyState()
 
 	// Start processing in a goroutine
-	go func() {
-		defer wg.Done()
-
-		// Signal that processing is about to start
-		close(processingStarted)
-
-		// Wait for accumulating events to be added
-		<-accumulatingAdded
-
-		processor.processBatch()
-	}()
+	go processor.processBatch()
 
 	// Wait for processing to start
-	<-processingStarted
+	processing := <-isProcessBusy
+	assert.True(t, processing, "Expected processing to start")
 
-	// Add events to accumulating buffer
-	processor.mu.Lock()
-	processor.accumulatingBuffer = append(processor.accumulatingBuffer, accumulatingEvents...)
-	processor.mu.Unlock()
+	// Wait for processing to finish
+	processing = <-isProcessBusy
+	assert.False(t, processing, "Expected processing to finish")
 
-	// Signal that accumulating events have been added
-	close(accumulatingAdded)
-
-	// Wait for processing to complete
-	wg.Wait()
-
-	// Verify the final state of buffers
-	if len(processor.accumulatingBuffer) != 0 {
-		t.Errorf("expected empty accumulating buffer, got %d events", len(processor.accumulatingBuffer))
-	}
-
-	if len(processor.remainingBuffer) != 0 {
-		t.Errorf("expected empty remaining buffer, got %d events", len(processor.remainingBuffer))
-	}
-
-	// Verify that active buffer contains all events in correct order
-	expectedTotalEvents := len(accumulatingEvents)
-	if len(processor.activeBuffer) != expectedTotalEvents {
-		t.Errorf("expected %d events in active buffer, got %d", expectedTotalEvents, len(processor.activeBuffer))
-	}
-
-	// Verify isProcessing flag is reset
-	if processor.isProcessing {
-		t.Error("expected isProcessing to be false after processing")
-	}
-
-	// Verify the order of events in the active buffer and verify that accumulating events has been added to the active buffer.
-	// They are the new active events.
-	for i, event := range processor.activeBuffer {
-		if event.DocumentID != accumulatingEvents[i].DocumentID {
-			t.Errorf("expected active event %s at position %d, got %s",
-				accumulatingEvents[i].DocumentID, i+1, event.DocumentID)
-		}
-	}
+	// Verify buffers are empty after processing
+	assert.Equal(t, 0, len(processor.activeBuffer), "Expected empty active buffer")
+	assert.Equal(t, 0, len(processor.remainingBuffer), "Expected empty remaining buffer")
 }
 
-func TestProcessBatchBufferManagementAllActiveEventsFailedToBeInserted(t *testing.T) {
-	config := &Config{
-		Typesense: TypesenseConfig{
-			CollectionName: "test",
-			MaxRetries:     1,
-			RetryBackoff:   time.Millisecond * 100,
-		},
-	}
-
+func TestProcessBatchBufferManagementWhenAllActiveEventsFailedToBeInserted(t *testing.T) {
 	// Create initial events
-	initialEvents := []interfaces.Event{
+	initialEvents := []externalservices.MongoChangeEvent{
 		{OperationType: "insert", DocumentID: "1", Document: nil},
 		{OperationType: "update", DocumentID: "2", Document: nil},
 	}
 
-	// Create events that will be added to accumulating buffer during processing
-	accumulatingEvents := []interfaces.Event{
-		{OperationType: "insert", DocumentID: "3", Document: map[string]interface{}{"id": "3"}},
-		{OperationType: "update", DocumentID: "4", Document: map[string]interface{}{"id": "4"}},
-	}
-
-	processor := &EventProcessorImpl{
-		activeBuffer:       make([]interfaces.Event, len(initialEvents)),
-		accumulatingBuffer: make([]interfaces.Event, 0),
-		remainingBuffer:    make([]interfaces.Event, 0),
-		config:             config,
-		typesenseClient:    &MockTypesenseClient{},
-		redisClient:        &MockRedisClient{},
-		isProcessing:       true,
+	processor := &EventProcessor{
+		activeBuffer:           make([]externalservices.MongoChangeEvent, len(initialEvents)),
+		remainingBuffer:        make([]externalservices.MongoChangeEvent, 0),
+		typesenseService:       NewTestTypesenseService(),
+		primaryRedis:           NewTestRedisService(),
+		backupRedis:            NewTestRedisService(),
+		watchingMongoDBService: &TestMongoService{},
+		fallbackMongoService:   &TestMongoService{},
+		processBusy:            make(chan bool, 1), // Initialize the channel
 	}
 
 	// Copy initial events to active buffer
 	copy(processor.activeBuffer, initialEvents)
 
-	// Create a channel to signal when processing has started
-	processingStarted := make(chan struct{})
-	// Create a channel to signal when we've added accumulating events
-	accumulatingAdded := make(chan struct{})
-
-	var wg sync.WaitGroup
-	wg.Add(1)
+	// Get the process busy channel
+	isProcessBusy := processor.GetProcessBusyState()
 
 	// Start processing in a goroutine
-	go func() {
-		defer wg.Done()
-
-		// Signal that processing is about to start
-		close(processingStarted)
-
-		// Wait for accumulating events to be added
-		<-accumulatingAdded
-
-		processor.processBatch()
-	}()
+	go processor.processBatch()
 
 	// Wait for processing to start
-	<-processingStarted
+	processing := <-isProcessBusy
+	assert.True(t, processing, "Expected processing to start")
 
-	// Add events to accumulating buffer
-	processor.mu.Lock()
-	processor.accumulatingBuffer = append(processor.accumulatingBuffer, accumulatingEvents...)
-	processor.mu.Unlock()
+	// Wait for processing to finish
+	processing = <-isProcessBusy
+	assert.False(t, processing, "Expected processing to finish")
 
-	// Signal that accumulating events have been added
-	close(accumulatingAdded)
-
-	// Wait for processing to complete
-	wg.Wait()
-
-	// Verify the final state of buffers
-	if len(processor.accumulatingBuffer) != 0 {
-		t.Errorf("expected empty accumulating buffer, got %d events", len(processor.accumulatingBuffer))
-	}
-
-	if len(processor.remainingBuffer) != 0 {
-		t.Errorf("expected empty remaining buffer, got %d events", len(processor.remainingBuffer))
-	}
-
-	// Verify that active buffer contains all events in correct order
-	expectedTotalEvents := len(initialEvents) + len(accumulatingEvents)
-	if len(processor.activeBuffer) != expectedTotalEvents {
-		t.Errorf("expected %d events in active buffer, got %d", expectedTotalEvents, len(processor.activeBuffer))
-	}
-
-	// Verify isProcessing flag is reset
-	if processor.isProcessing {
-		t.Error("expected isProcessing to be false after processing")
-	}
+	// Verify buffer states
+	assert.Equal(t, 0, len(processor.remainingBuffer), "Expected empty remaining buffer")
+	assert.Equal(t, len(initialEvents), len(processor.activeBuffer), "Expected all events in active buffer")
 
 	// Verify the order of events in the active buffer
 	for i := 1; i < len(processor.activeBuffer); i++ {
-		if processor.activeBuffer[i-1].DocumentID > processor.activeBuffer[i].DocumentID {
-			t.Errorf("activeBuffer is not sorted by DocumentID in ascending order at position %d", i)
-		}
+		assert.LessOrEqual(t, processor.activeBuffer[i-1].DocumentID, processor.activeBuffer[i].DocumentID,
+			"activeBuffer should be sorted by DocumentID in ascending order")
 	}
+}
+
+func TestEventProcessor_Enqueue(t *testing.T) {
+	typesenseService := NewTestTypesenseService()
+	primaryRedis := NewTestRedisService()
+	backupRedis := NewTestRedisService()
+	watchingMongo := &TestMongoService{}
+	fallbackMongo := &TestMongoService{}
+
+	processor, err := NewEventProcessor(
+		typesenseService,
+		primaryRedis,
+		backupRedis,
+		watchingMongo,
+		fallbackMongo,
+		1000,
+		time.Second*5,
+	)
+	assert.NoError(t, err)
+	assert.NotNil(t, processor)
+	defer processor.Stop()
+
+	ctx := context.Background()
+	event := externalservices.MongoChangeEvent{
+		OperationType: "insert",
+		Document:      map[string]interface{}{"test": "value"},
+		DocumentID:    "123",
+		Timestamp:     time.Now().Unix(),
+	}
+
+	err = processor.Enqueue(ctx, event)
+	assert.NoError(t, err)
+}
+func TestEventProcessor_WithTypesenseErrors(t *testing.T) {
+	typesenseService := &TestTypesenseService{upsertErr: errors.New("typesense error")}
+	primaryRedis := NewTestRedisService()
+	backupRedis := NewTestRedisService()
+	watchingMongo := &TestMongoService{}
+	fallbackMongo := &TestMongoService{}
+
+	processor, err := NewEventProcessor(
+		typesenseService,
+		primaryRedis,
+		backupRedis,
+		watchingMongo,
+		fallbackMongo,
+		1000,
+		time.Second*5,
+	)
+	assert.NoError(t, err)
+	assert.NotNil(t, processor)
+	defer processor.Stop()
+
+	ctx := context.Background()
+	event := externalservices.MongoChangeEvent{
+		OperationType: "insert",
+		Document:      map[string]interface{}{"test": "value"},
+		DocumentID:    "123",
+		Timestamp:     time.Now().Unix(),
+	}
+
+	err = processor.Enqueue(ctx, event)
+	assert.NoError(t, err) // Should not error as it's just queued
+}
+
+func TestEventProcessor_Close(t *testing.T) {
+	// Create initial events
+	initialEvents := []externalservices.MongoChangeEvent{
+		{OperationType: "insert", DocumentID: "1", Document: map[string]interface{}{"id": "1"}},
+		{OperationType: "update", DocumentID: "2", Document: map[string]interface{}{"id": "2"}},
+	}
+
+	mockRedis := NewTestRedisService().(*TestRedisService) // Type assert to TestRedisService
+	mockBackupFlusher := NewTestBackupFlusher()
+	processor := &EventProcessor{
+		activeBuffer:           make([]externalservices.MongoChangeEvent, len(initialEvents)),
+		remainingBuffer:        make([]externalservices.MongoChangeEvent, 0),
+		typesenseService:       NewTestTypesenseService(),
+		primaryRedis:           mockRedis,
+		backupRedis:            NewTestRedisService(),
+		watchingMongoDBService: &TestMongoService{},
+		fallbackMongoService:   &TestMongoService{},
+		processBusy:            make(chan bool, 1),
+		done:                   make(chan struct{}),
+		eventChan:              make(chan externalservices.MongoChangeEvent, 100), // Initialize eventChan
+		backupFlusher:          mockBackupFlusher,
+		maxBufferSize:          100,
+		processInterval:        time.Second * 5,
+		stopChan:               make(chan struct{}),
+	}
+
+	// Start the accumulateEvents goroutine
+	go processor.accumulateEvents()
+
+	// Copy initial events to active buffer
+	copy(processor.activeBuffer, initialEvents)
+
+	// Get the process busy channel
+	isProcessBusy := processor.GetProcessBusyState()
+
+	// Start Close in a goroutine since it blocks on processBusy
+	go processor.Close()
+
+	// Wait for processing to start
+	processing := <-isProcessBusy
+	assert.True(t, processing, "Expected processing to start")
+
+	// Wait for processing to finish
+	processing = <-isProcessBusy
+	assert.False(t, processing, "Expected processing to finish")
+
+	// Give a small amount of time for the accumulateEvents goroutine to process the done signal
+	time.Sleep(10 * time.Millisecond)
+
+	// Verify done channel is closed
+	select {
+	case <-processor.done:
+		// Channel is closed as expected
+	default:
+		t.Error("Expected done channel to be closed")
+	}
+
+	// Verify eventChan is closed
+	select {
+	case _, ok := <-processor.eventChan:
+		if ok {
+			t.Error("Expected eventChan to be closed")
+		}
+	default:
+		t.Error("Expected eventChan to be closed")
+	}
+
+	// Verify backupFlusher was called with the correct events
+	assert.True(t, mockBackupFlusher.flushCalled, "Expected backupFlusher.Flush to be called")
+	assert.Equal(t, initialEvents, mockBackupFlusher.lastFlushedEvents, "Expected backupFlusher to be called with initial events")
+
+	// Verify active buffer is cleared after flushing
+	assert.Equal(t, 0, len(processor.activeBuffer), "Expected active buffer to be cleared after flushing")
+}
+
+func TestEventProcessor_StartProcessingTime_WhenThereAreEvents(t *testing.T) {
+	// Create initial events
+	initialEvents := []externalservices.MongoChangeEvent{
+		{OperationType: "insert", DocumentID: "1", Document: map[string]interface{}{"id": "1"}},
+		{OperationType: "update", DocumentID: "2", Document: map[string]interface{}{"id": "2"}},
+	}
+
+	// Create a ticker with a very short interval for testing
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	// Channel to track when processBatch is called
+	processBatchCalled := make(chan struct{})
+
+	baseProcessor := &EventProcessor{
+		activeBuffer:           make([]externalservices.MongoChangeEvent, len(initialEvents)),
+		remainingBuffer:        make([]externalservices.MongoChangeEvent, 0),
+		typesenseService:       NewTestTypesenseService(),
+		primaryRedis:           NewTestRedisService(),
+		backupRedis:            NewTestRedisService(),
+		watchingMongoDBService: &TestMongoService{},
+		fallbackMongoService:   &TestMongoService{},
+		processBusy:            make(chan bool, 1),
+		done:                   make(chan struct{}),
+		eventChan:              make(chan externalservices.MongoChangeEvent, 100),
+		backupFlusher:          NewTestBackupFlusher(),
+		maxBufferSize:          100,
+		processInterval:        time.Second * 5,
+		stopChan:               make(chan struct{}),
+		ticker:                 ticker,
+	}
+
+	processor := &TestEventProcessor{
+		EventProcessor: baseProcessor,
+		processBatchFunc: func() {
+			close(processBatchCalled)
+			baseProcessor.processBatch()
+		},
+	}
+
+	// Copy initial events to active buffer
+	copy(processor.activeBuffer, initialEvents)
+
+	// Start the processing timer in a goroutine
+	go processor.startProcessingTimer()
+
+	// Wait for processBatch to be called
+	select {
+	case <-processBatchCalled:
+		// processBatch was called as expected
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Expected processBatch to be called within 100ms")
+	}
+
+	// Stop the processor
+	close(processor.stopChan)
+}
+
+func TestEventProcessor_StartProcessingTime_WhenNoEvents(t *testing.T) {
+	// No initial events
+	initialEvents := []externalservices.MongoChangeEvent{}
+
+	// Create a ticker with a very short interval for testing
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	// Channel to track if processBatch is called
+	processBatchCalled := make(chan struct{}, 1)
+
+	baseProcessor := &EventProcessor{
+		activeBuffer:           make([]externalservices.MongoChangeEvent, len(initialEvents)),
+		remainingBuffer:        make([]externalservices.MongoChangeEvent, 0),
+		typesenseService:       NewTestTypesenseService(),
+		primaryRedis:           NewTestRedisService(),
+		backupRedis:            NewTestRedisService(),
+		watchingMongoDBService: &TestMongoService{},
+		fallbackMongoService:   &TestMongoService{},
+		processBusy:            make(chan bool, 1),
+		done:                   make(chan struct{}),
+		eventChan:              make(chan externalservices.MongoChangeEvent, 100),
+		backupFlusher:          NewTestBackupFlusher(),
+		maxBufferSize:          100,
+		processInterval:        time.Second * 5,
+		stopChan:               make(chan struct{}),
+		ticker:                 ticker,
+	}
+
+	processor := &TestEventProcessor{
+		EventProcessor: baseProcessor,
+		processBatchFunc: func() {
+			processBatchCalled <- struct{}{}
+			baseProcessor.processBatch()
+		},
+	}
+
+	// Copy initial events to active buffer (empty)
+	copy(processor.activeBuffer, initialEvents)
+
+	// Start the processing timer in a goroutine
+	go processor.startProcessingTimer()
+
+	// Wait for a bit longer than the ticker interval
+	select {
+	case <-processBatchCalled:
+		t.Error("processBatch should NOT be called when there are no events")
+	case <-time.After(50 * time.Millisecond):
+		// Success: processBatch was not called
+	}
+
+	// Stop the processor
+	close(processor.stopChan)
 }

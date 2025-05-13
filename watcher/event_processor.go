@@ -2,84 +2,78 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log"
 	"sync"
 	"time"
-
-	"watcher/interfaces"
-
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	externalservices "watcher/external-services"
 )
 
-type EventProcessorImpl struct {
-	mu                 sync.Mutex
-	activeBuffer       []interfaces.Event // Buffer currently being processed
-	accumulatingBuffer []interfaces.Event // Buffer receiving new events during processing
-	remainingBuffer    []interfaces.Event // Buffer of remaining events after a failed operation
-	lastFlush          time.Time
-	config             *Config
-	redisClient        interfaces.RedisClient
-	typesenseClient    interfaces.TypesenseClient
-	fallbackStore      *FallbackStoreImpl
-	health             QueueHealth
-	ticker             *time.Ticker
-	done               chan struct{}
-	eventChan          chan interfaces.Event
-	isProcessing       bool
+type EventProcessor struct {
+	mu                     sync.Mutex
+	activeBuffer           []externalservices.MongoChangeEvent
+	remainingBuffer        []externalservices.MongoChangeEvent
+	lastFlush              time.Time
+	typesenseService       externalservices.TypesenseServiceContract
+	primaryRedis           externalservices.RedisServiceContract
+	backupRedis            externalservices.RedisServiceContract
+	watchingMongoDBService externalservices.MongoServiceContract
+	fallbackMongoService   externalservices.MongoServiceContract
+	ticker                 *time.Ticker
+	done                   chan struct{}
+	eventChan              chan externalservices.MongoChangeEvent
+	backupFlusher          BackupFlusherContract
+	maxBufferSize          int
+	processInterval        time.Duration
+	stopChan               chan struct{}
+	processBusy            chan bool
 }
 
-func NewEventProcessor(config *Config, redisClient interfaces.RedisClient, typesenseClient interfaces.TypesenseClient) (*EventProcessorImpl, error) {
-	fallbackStore := &FallbackStoreImpl{
-		client:     nil, // Will be initialized when needed
-		database:   config.MongoDatabase,
-		collection: config.MongoCollection,
+func NewEventProcessor(
+	typesenseService externalservices.TypesenseServiceContract,
+	primaryRedis externalservices.RedisServiceContract,
+	backupRedis externalservices.RedisServiceContract,
+	watchingMongoDBService externalservices.MongoServiceContract,
+	fallbackMongoService externalservices.MongoServiceContract,
+	maxBufferSize int,
+	processInterval time.Duration,
+) (*EventProcessor, error) {
+
+	backupFlusher := NewBackupFlusher(
+		primaryRedis,
+		backupRedis,
+		watchingMongoDBService,
+	)
+
+	processor := &EventProcessor{
+		activeBuffer:           make([]externalservices.MongoChangeEvent, 0),
+		remainingBuffer:        make([]externalservices.MongoChangeEvent, 0),
+		lastFlush:              time.Now(),
+		typesenseService:       typesenseService,
+		primaryRedis:           primaryRedis,
+		backupRedis:            backupRedis,
+		watchingMongoDBService: watchingMongoDBService,
+		fallbackMongoService:   fallbackMongoService,
+		done:                   make(chan struct{}),
+		eventChan:              make(chan externalservices.MongoChangeEvent, maxBufferSize),
+		backupFlusher:          backupFlusher,
+		maxBufferSize:          maxBufferSize,
+		processInterval:        processInterval,
+		stopChan:               make(chan struct{}),
+		processBusy:            make(chan bool, 1),
 	}
 
-	processor := &EventProcessorImpl{
-		activeBuffer:       make([]interfaces.Event, 0),
-		accumulatingBuffer: make([]interfaces.Event, 0),
-		remainingBuffer:    make([]interfaces.Event, 0),
-		lastFlush:          time.Now(),
-		config:             config,
-		redisClient:        redisClient,
-		typesenseClient:    typesenseClient,
-		fallbackStore:      fallbackStore,
-		health:             QueueHealth{},
-		done:               make(chan struct{}),
-		eventChan:          make(chan interfaces.Event, config.MaxBufferSize),
-		isProcessing:       false,
-	}
-
-	// Start the ticker for periodic updates
-	processor.ticker = time.NewTicker(time.Duration(config.FlushInterval) * time.Second)
-	go processor.processEvents()
+	processor.ticker = time.NewTicker(processInterval)
 	go processor.accumulateEvents()
+	go processor.startProcessingTimer()
 
 	return processor, nil
 }
 
-func (w *EventProcessorImpl) accumulateEvents() {
+func (w *EventProcessor) accumulateEvents() {
 	for {
 		select {
 		case event := <-w.eventChan:
-			w.mu.Lock()
-			if w.isProcessing {
-				// If processing is active, add to accumulating buffer
-				w.accumulatingBuffer = append(w.accumulatingBuffer, event)
-			} else {
-				// If not processing, add to active buffer
-				w.activeBuffer = append(w.activeBuffer, event)
-				if len(w.activeBuffer) >= w.config.MaxBufferSize {
-					// Start processing if buffer is full
-					w.isProcessing = true
-					go w.processBatch()
-				}
-			}
-			w.mu.Unlock()
+			w.activeBuffer = append(w.activeBuffer, event)
 		case <-w.done:
 			close(w.eventChan)
 			return
@@ -87,48 +81,31 @@ func (w *EventProcessorImpl) accumulateEvents() {
 	}
 }
 
-func (w *EventProcessorImpl) processEvents() {
-	for {
-		select {
-		case <-w.ticker.C:
-			w.mu.Lock()
-			if len(w.activeBuffer) > 0 && !w.isProcessing {
-				w.isProcessing = true
-				go w.processBatch()
-			}
-			w.mu.Unlock()
-		case <-w.done:
-			w.ticker.Stop()
-			return
-		}
-	}
-}
-
-func (w *EventProcessorImpl) setRemainingBuffer(batch []interfaces.Event, i int) {
-	w.remainingBuffer = make([]interfaces.Event, len(batch[i:]))
+func (w *EventProcessor) setRemainingBuffer(batch []externalservices.MongoChangeEvent, i int) {
+	w.remainingBuffer = make([]externalservices.MongoChangeEvent, len(batch[i:]))
 	w.remainingBuffer = batch[i:]
 }
 
-func (w *EventProcessorImpl) processBatch() {
+func (w *EventProcessor) processBatch() {
+	// Signal that processing has started
+	w.processBusy <- true
 	defer func() {
 		w.mu.Lock()
-		// After processing, move accumulating buffer to active buffer and add remaining buffer to the start of the active buffer
-		w.activeBuffer = append(w.remainingBuffer, w.accumulatingBuffer...)
-		// Clear the accumulating buffer and remaining buffer
-		w.accumulatingBuffer = make([]interfaces.Event, 0)
-		w.remainingBuffer = make([]interfaces.Event, 0)
-		w.isProcessing = false
+		// After processing, add any remaining buffer to the start of the active buffer
+		w.activeBuffer = append(w.remainingBuffer, w.activeBuffer...)
+		// Clear the remaining buffer
+		w.remainingBuffer = make([]externalservices.MongoChangeEvent, 0)
 		w.mu.Unlock()
+		// Signal that processing has finished
+		w.processBusy <- false
 	}()
 
 	w.mu.Lock()
-
 	// Create a copy of the current buffer for processing
-	batch := make([]interfaces.Event, len(w.activeBuffer))
+	batch := make([]externalservices.MongoChangeEvent, len(w.activeBuffer))
 	copy(batch, w.activeBuffer)
-
 	// Clear the active buffer
-	w.activeBuffer = make([]interfaces.Event, 0)
+	w.activeBuffer = make([]externalservices.MongoChangeEvent, 0)
 	w.mu.Unlock()
 
 	// Process events in order
@@ -141,27 +118,23 @@ func (w *EventProcessorImpl) processBatch() {
 			switch event.OperationType {
 			case "insert", "update":
 				err = retryOperation(context.Background(), func() error {
-					return w.typesenseClient.UpsertDocument(context.Background(), w.config.Typesense.CollectionName, event.Document)
-				}, w.config.Typesense.MaxRetries, w.config.Typesense.RetryBackoff)
+					return w.typesenseService.UpsertDocument(context.Background(), event.Document)
+				}, 3, time.Second)
 
 				if err != nil {
-					log.Printf("Failed to upsert document in Typesense after %d retries (ID: %s): %v",
-						w.config.Typesense.MaxRetries, event.DocumentID, err)
-
-					// Get all remaining events including the failed one
+					log.Printf("Failed to upsert document in Typesense after retries (ID: %s): %v",
+						event.DocumentID, err)
 					w.setRemainingBuffer(batch, i)
 					return
 				}
 			case "delete":
 				err = retryOperation(context.Background(), func() error {
-					return w.typesenseClient.DeleteDocument(context.Background(), w.config.Typesense.CollectionName, event.DocumentID)
-				}, w.config.Typesense.MaxRetries, w.config.Typesense.RetryBackoff)
+					return w.typesenseService.DeleteDocument(context.Background(), event.DocumentID)
+				}, 3, time.Second)
 
 				if err != nil {
-					log.Printf("Failed to delete document from Typesense after %d retries (ID: %s): %v",
-						w.config.Typesense.MaxRetries, event.DocumentID, err)
-
-					// Get all remaining events including the failed one
+					log.Printf("Failed to delete document from Typesense after retries (ID: %s): %v",
+						event.DocumentID, err)
 					w.setRemainingBuffer(batch, i)
 					return
 				}
@@ -174,7 +147,7 @@ func (w *EventProcessorImpl) processBatch() {
 	w.mu.Unlock()
 }
 
-func (w *EventProcessorImpl) Enqueue(ctx context.Context, event interfaces.Event) error {
+func (w *EventProcessor) Enqueue(ctx context.Context, event externalservices.MongoChangeEvent) error {
 	select {
 	case w.eventChan <- event:
 		return nil
@@ -183,150 +156,56 @@ func (w *EventProcessorImpl) Enqueue(ctx context.Context, event interfaces.Event
 	}
 }
 
-func (w *EventProcessorImpl) storeInRedis(events []interfaces.Event) {
-	eventsJSON, err := json.Marshal(events)
-	if err != nil {
-		log.Printf("Failed to marshal events: %v", err)
-		return
-	}
-
-	ctx := context.Background()
-	err = retryOperation(ctx, func() error {
-		return w.redisClient.RPush(ctx, w.config.PrimaryRedis.QueueKey, eventsJSON)
-	}, w.config.PrimaryRedis.MaxRetries, w.config.PrimaryRedis.RetryBackoff)
-
-	if err != nil {
-		// Try backup Redis
-		err = retryOperation(ctx, func() error {
-			return w.redisClient.RPush(ctx, w.config.BackupRedis.QueueKey, eventsJSON)
-		}, w.config.BackupRedis.MaxRetries, w.config.BackupRedis.RetryBackoff)
-
-		if err != nil {
-			// Store in fallback if both Redis instances fail
-			if err := w.storeInFallback(ctx, events...); err != nil {
-				log.Printf("Failed to store events in fallback: %v", err)
-			}
-		}
-	}
-}
-
-func (w *EventProcessorImpl) storeInFallback(ctx context.Context, events ...interfaces.Event) error {
-	if w.fallbackStore.client == nil {
-		client, err := ConnectToMongoDB(w.config.MongoURI)
-		if err != nil {
-			return fmt.Errorf("failed to connect to MongoDB for fallback: %v", err)
-		}
-		w.fallbackStore.client = client
-	}
-
-	documents := make([]interface{}, len(events))
-	for i, event := range events {
-		documents[i] = bson.M{
-			"operation_type": event.OperationType,
-			"document":       event.Document,
-			"document_id":    event.DocumentID,
-			"timestamp":      event.Timestamp,
-		}
-	}
-
-	_, err := w.fallbackStore.client.Database(w.fallbackStore.database).
-		Collection(w.fallbackStore.collection).
-		InsertMany(ctx, documents)
-
-	return err
-}
-
-func (w *EventProcessorImpl) RecoverFromRedis() error {
-	ctx := context.Background()
-
-	events, err := w.recoverFromRedis(ctx, w.redisClient, w.config.PrimaryRedis.QueueKey)
-	if err != nil {
-		events, err = w.recoverFromRedis(ctx, w.redisClient, w.config.BackupRedis.QueueKey)
-		if err != nil {
-			return fmt.Errorf("failed to recover from both Redis instances: %v", err)
-		}
-	}
-
-	for _, event := range events {
-		if err := w.Enqueue(ctx, event); err != nil {
-			log.Printf("Failed to enqueue recovered event: %v", err)
-		}
-	}
-
-	return nil
-}
-
-func (w *EventProcessorImpl) recoverFromRedis(ctx context.Context, client interfaces.RedisClient, queueKey string) ([]interfaces.Event, error) {
-	data, err := client.LPop(ctx, queueKey)
-	if err != nil {
-		return nil, err
-	}
-
-	var events []interfaces.Event
-	if err := json.Unmarshal([]byte(data), &events); err != nil {
-		return nil, err
-	}
-
-	return events, nil
-}
-
-func (w *EventProcessorImpl) checkQueueHealth() {
-	ctx := context.Background()
-
-	primaryLength, err := w.redisClient.LLen(ctx, w.config.PrimaryRedis.QueueKey)
-	if err != nil {
-		w.health.PrimaryQueueError = err
-	} else {
-		w.health.PrimaryQueueLength = primaryLength
-		w.health.PrimaryQueueError = nil
-	}
-
-	backupLength, err := w.redisClient.LLen(ctx, w.config.BackupRedis.QueueKey)
-	if err != nil {
-		w.health.BackupQueueError = err
-	} else {
-		w.health.BackupQueueLength = backupLength
-		w.health.BackupQueueError = nil
-	}
-
-	w.health.LastCheck = time.Now()
-}
-
-func (w *EventProcessorImpl) GetQueueHealth() QueueHealth {
-	return w.health
-}
-
-func (w *EventProcessorImpl) Close() {
+func (w *EventProcessor) Close() {
+	// First close the done channel to stop event accumulation
 	close(w.done)
+
+	// Signal that processing has started
+	w.processBusy <- true
+
+	// Get the mutex lock to safely access and clear the buffer
 	w.mu.Lock()
-
-	if len(w.activeBuffer) > 0 {
-		// Store remaining events in Redis and MongoDB
-		w.storeInRedis(w.activeBuffer)
-		if err := w.storeInFallback(context.Background(), w.activeBuffer...); err != nil {
-			log.Printf("Failed to store remaining events in fallback: %v", err)
-		}
-	}
+	events := make([]externalservices.MongoChangeEvent, len(w.activeBuffer))
+	copy(events, w.activeBuffer)
+	w.activeBuffer = make([]externalservices.MongoChangeEvent, 0)
 	w.mu.Unlock()
+
+	// Flush events if any
+	if len(events) > 0 {
+		w.backupFlusher.Flush(events)
+	}
+
+	// Signal that processing has finished
+	w.processBusy <- false
 }
 
-func retryOperation(ctx context.Context, operation func() error, maxRetries int, backoff time.Duration) error {
-	for i := 0; i < maxRetries; i++ {
-		err := operation()
-		if err == nil {
-			return nil
-		}
-		if i < maxRetries-1 {
-			time.Sleep(backoff)
+func (w *EventProcessor) startProcessingTimer() {
+	for {
+		select {
+		case <-w.ticker.C:
+			w.mu.Lock()
+			// Only process if we have events
+			if len(w.activeBuffer) > 0 {
+				go w.processBatch()
+			}
+			w.mu.Unlock()
+		case <-w.stopChan:
+			w.ticker.Stop()
+			return
+		case <-w.done:
+			w.ticker.Stop()
+			return
 		}
 	}
-	return fmt.Errorf("operation failed after %d retries", maxRetries)
 }
 
-func ConnectToMongoDB(uri string) (*mongo.Client, error) {
-	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(uri))
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to MongoDB: %v", err)
-	}
-	return client, nil
+// Stop gracefully stops the event processor
+func (e *EventProcessor) Stop() {
+	close(e.stopChan)
+	close(e.done)
+}
+
+// GetProcessBusyState returns a channel that signals whether the processor is currently busy processing
+func (w *EventProcessor) GetProcessBusyState() <-chan bool {
+	return w.processBusy
 }

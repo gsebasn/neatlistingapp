@@ -10,9 +10,12 @@ import (
 
 func setupConfigTestEnv() {
 	// MongoDB
-	os.Setenv("MONGODB_URI", "mongodb://localhost:27017")
-	os.Setenv("MONGODB_DATABASE", "testdb")
-	os.Setenv("MONGODB_COLLECTION", "testcoll")
+	os.Setenv("PRIMARY_MONGODB_URI", "mongodb://localhost:27017")
+	os.Setenv("PRIMARY_MONGODB_DATABASE", "testdb")
+	os.Setenv("PRIMARY_MONGODB_COLLECTION", "testcoll")
+	os.Setenv("FALLBACK_MONGODB_URI", "mongodb://localhost:27018")
+	os.Setenv("FALLBACK_MONGODB_DATABASE", "fallbackdb")
+	os.Setenv("FALLBACK_MONGODB_COLLECTION", "fallbackcoll")
 
 	// Buffer settings
 	os.Setenv("MAX_BUFFER_SIZE", "1000")
@@ -36,20 +39,20 @@ func setupConfigTestEnv() {
 	os.Setenv("PRIMARY_REDIS_RDB_FILENAME", "dump.rdb")
 
 	// Backup Redis
-	os.Setenv("BACKUP_REDIS_HOST", "localhost")
-	os.Setenv("BACKUP_REDIS_PORT", "6380")
-	os.Setenv("BACKUP_REDIS_PASSWORD", "")
-	os.Setenv("BACKUP_REDIS_DB", "0")
-	os.Setenv("BACKUP_REDIS_QUEUE_KEY", "backup-queue")
-	os.Setenv("BACKUP_REDIS_POOL_SIZE", "10")
-	os.Setenv("BACKUP_REDIS_MIN_IDLE_CONNS", "5")
-	os.Setenv("BACKUP_REDIS_MAX_RETRIES", "3")
-	os.Setenv("BACKUP_REDIS_RETRY_BACKOFF", "100ms")
-	os.Setenv("BACKUP_REDIS_CONN_MAX_LIFETIME", "30m")
-	os.Setenv("BACKUP_REDIS_SAVE_INTERVAL", "1m")
-	os.Setenv("BACKUP_REDIS_APPEND_ONLY", "true")
-	os.Setenv("BACKUP_REDIS_APPEND_FILENAME", "appendonly.aof")
-	os.Setenv("BACKUP_REDIS_RDB_FILENAME", "dump.rdb")
+	os.Setenv("SECONDARY_REDIS_HOST", "localhost")
+	os.Setenv("SECONDARY_REDIS_PORT", "6380")
+	os.Setenv("SECONDARY_REDIS_PASSWORD", "")
+	os.Setenv("SECONDARY_REDIS_DB", "0")
+	os.Setenv("SECONDARY_REDIS_QUEUE_KEY", "backup-queue")
+	os.Setenv("SECONDARY_REDIS_POOL_SIZE", "10")
+	os.Setenv("SECONDARY_REDIS_MIN_IDLE_CONNS", "5")
+	os.Setenv("SECONDARY_REDIS_MAX_RETRIES", "3")
+	os.Setenv("SECONDARY_REDIS_RETRY_BACKOFF", "100ms")
+	os.Setenv("SECONDARY_REDIS_CONN_MAX_LIFETIME", "30m")
+	os.Setenv("SECONDARY_REDIS_SAVE_INTERVAL", "1m")
+	os.Setenv("SECONDARY_REDIS_APPEND_ONLY", "true")
+	os.Setenv("SECONDARY_REDIS_APPEND_FILENAME", "appendonly.aof")
+	os.Setenv("SECONDARY_REDIS_RDB_FILENAME", "dump.rdb")
 
 	// Typesense
 	os.Setenv("TYPESENSE_API_KEY", "test-key")
@@ -65,9 +68,12 @@ func setupConfigTestEnv() {
 
 func teardownConfigTestEnv() {
 	// MongoDB
-	os.Unsetenv("MONGODB_URI")
-	os.Unsetenv("MONGODB_DATABASE")
-	os.Unsetenv("MONGODB_COLLECTION")
+	os.Unsetenv("PRIMARY_MONGODB_URI")
+	os.Unsetenv("PRIMARY_MONGODB_DATABASE")
+	os.Unsetenv("PRIMARY_MONGODB_COLLECTION")
+	os.Unsetenv("FALLBACK_MONGODB_URI")
+	os.Unsetenv("FALLBACK_MONGODB_DATABASE")
+	os.Unsetenv("FALLBACK_MONGODB_COLLECTION")
 
 	// Buffer settings
 	os.Unsetenv("MAX_BUFFER_SIZE")
@@ -91,20 +97,20 @@ func teardownConfigTestEnv() {
 	os.Unsetenv("PRIMARY_REDIS_RDB_FILENAME")
 
 	// Backup Redis
-	os.Unsetenv("BACKUP_REDIS_HOST")
-	os.Unsetenv("BACKUP_REDIS_PORT")
-	os.Unsetenv("BACKUP_REDIS_PASSWORD")
-	os.Unsetenv("BACKUP_REDIS_DB")
-	os.Unsetenv("BACKUP_REDIS_QUEUE_KEY")
-	os.Unsetenv("BACKUP_REDIS_POOL_SIZE")
-	os.Unsetenv("BACKUP_REDIS_MIN_IDLE_CONNS")
-	os.Unsetenv("BACKUP_REDIS_MAX_RETRIES")
-	os.Unsetenv("BACKUP_REDIS_RETRY_BACKOFF")
-	os.Unsetenv("BACKUP_REDIS_CONN_MAX_LIFETIME")
-	os.Unsetenv("BACKUP_REDIS_SAVE_INTERVAL")
-	os.Unsetenv("BACKUP_REDIS_APPEND_ONLY")
-	os.Unsetenv("BACKUP_REDIS_APPEND_FILENAME")
-	os.Unsetenv("BACKUP_REDIS_RDB_FILENAME")
+	os.Unsetenv("SECONDARY_REDIS_HOST")
+	os.Unsetenv("SECONDARY_REDIS_PORT")
+	os.Unsetenv("SECONDARY_REDIS_PASSWORD")
+	os.Unsetenv("SECONDARY_REDIS_DB")
+	os.Unsetenv("SECONDARY_REDIS_QUEUE_KEY")
+	os.Unsetenv("SECONDARY_REDIS_POOL_SIZE")
+	os.Unsetenv("SECONDARY_REDIS_MIN_IDLE_CONNS")
+	os.Unsetenv("SECONDARY_REDIS_MAX_RETRIES")
+	os.Unsetenv("SECONDARY_REDIS_RETRY_BACKOFF")
+	os.Unsetenv("SECONDARY_REDIS_CONN_MAX_LIFETIME")
+	os.Unsetenv("SECONDARY_REDIS_SAVE_INTERVAL")
+	os.Unsetenv("SECONDARY_REDIS_APPEND_ONLY")
+	os.Unsetenv("SECONDARY_REDIS_APPEND_FILENAME")
+	os.Unsetenv("SECONDARY_REDIS_RDB_FILENAME")
 
 	// Typesense
 	os.Unsetenv("TYPESENSE_API_KEY")
@@ -128,9 +134,12 @@ func TestConfigLoader(t *testing.T) {
 		assert.NotNil(t, config)
 
 		// Test MongoDB config
-		assert.Equal(t, "mongodb://localhost:27017", config.MongoURI)
-		assert.Equal(t, "testdb", config.MongoDatabase)
-		assert.Equal(t, "testcoll", config.MongoCollection)
+		assert.Equal(t, "mongodb://localhost:27017", config.PrimaryMongoURI)
+		assert.Equal(t, "testdb", config.PrimaryMongoDatabase)
+		assert.Equal(t, "testcoll", config.PrimaryMongoCollection)
+		assert.Equal(t, "mongodb://localhost:27018", config.FallbackMongoURI)
+		assert.Equal(t, "fallbackdb", config.FallbackMongoDatabase)
+		assert.Equal(t, "fallbackcoll", config.FallbackMongoCollection)
 
 		// Test buffer settings
 		assert.Equal(t, 1000, config.MaxBufferSize)
@@ -154,20 +163,20 @@ func TestConfigLoader(t *testing.T) {
 		assert.Equal(t, "dump.rdb", config.PrimaryRedis.RDBFilename)
 
 		// Test Backup Redis config
-		assert.Equal(t, "localhost", config.BackupRedis.Host)
-		assert.Equal(t, "6380", config.BackupRedis.Port)
-		assert.Equal(t, "", config.BackupRedis.Password)
-		assert.Equal(t, 0, config.BackupRedis.DB)
-		assert.Equal(t, "backup-queue", config.BackupRedis.QueueKey)
-		assert.Equal(t, 10, config.BackupRedis.PoolSize)
-		assert.Equal(t, 5, config.BackupRedis.MinIdleConns)
-		assert.Equal(t, 3, config.BackupRedis.MaxRetries)
-		assert.Equal(t, 100*time.Millisecond, config.BackupRedis.RetryBackoff)
-		assert.Equal(t, 30*time.Minute, config.BackupRedis.ConnMaxLifetime)
-		assert.Equal(t, time.Minute, config.BackupRedis.SaveInterval)
-		assert.True(t, config.BackupRedis.AppendOnly)
-		assert.Equal(t, "appendonly.aof", config.BackupRedis.AppendFilename)
-		assert.Equal(t, "dump.rdb", config.BackupRedis.RDBFilename)
+		assert.Equal(t, "localhost", config.SecondaryRedis.Host)
+		assert.Equal(t, "6380", config.SecondaryRedis.Port)
+		assert.Equal(t, "", config.SecondaryRedis.Password)
+		assert.Equal(t, 0, config.SecondaryRedis.DB)
+		assert.Equal(t, "backup-queue", config.SecondaryRedis.QueueKey)
+		assert.Equal(t, 10, config.SecondaryRedis.PoolSize)
+		assert.Equal(t, 5, config.SecondaryRedis.MinIdleConns)
+		assert.Equal(t, 3, config.SecondaryRedis.MaxRetries)
+		assert.Equal(t, 100*time.Millisecond, config.SecondaryRedis.RetryBackoff)
+		assert.Equal(t, 30*time.Minute, config.SecondaryRedis.ConnMaxLifetime)
+		assert.Equal(t, time.Minute, config.SecondaryRedis.SaveInterval)
+		assert.True(t, config.SecondaryRedis.AppendOnly)
+		assert.Equal(t, "appendonly.aof", config.SecondaryRedis.AppendFilename)
+		assert.Equal(t, "dump.rdb", config.SecondaryRedis.RDBFilename)
 
 		// Test Typesense config
 		assert.Equal(t, "test-key", config.Typesense.APIKey)

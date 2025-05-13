@@ -13,18 +13,18 @@ type MockRedisClient struct {
 	mock.Mock
 }
 
-func (m *MockRedisClient) RPush(ctx context.Context, key string, value interface{}) error {
-	args := m.Called(ctx, key, value)
+func (m *MockRedisClient) RPush(ctx context.Context, value interface{}) error {
+	args := m.Called(ctx, value)
 	return args.Error(0)
 }
 
-func (m *MockRedisClient) LPop(ctx context.Context, key string) (string, error) {
-	args := m.Called(ctx, key)
+func (m *MockRedisClient) LPop(ctx context.Context) (string, error) {
+	args := m.Called(ctx)
 	return args.String(0), args.Error(1)
 }
 
-func (m *MockRedisClient) LLen(ctx context.Context, key string) (int64, error) {
-	args := m.Called(ctx, key)
+func (m *MockRedisClient) LLen(ctx context.Context) (int64, error) {
+	args := m.Called(ctx)
 	return args.Get(0).(int64), args.Error(1)
 }
 
@@ -40,34 +40,37 @@ func (m *MockRedisClient) Ping(ctx context.Context) error {
 
 func TestRedisClient(t *testing.T) {
 	tests := []struct {
-		name    string
-		host    string
-		port    string
-		pass    string
-		db      int
-		wantErr bool
+		name     string
+		host     string
+		port     string
+		pass     string
+		db       int
+		queueKey string
+		wantErr  bool
 	}{
 		{
-			name:    "Valid Connection",
-			host:    "localhost",
-			port:    "6379",
-			pass:    "",
-			db:      0,
-			wantErr: false,
+			name:     "Valid Connection",
+			host:     "localhost",
+			port:     "6379",
+			pass:     "",
+			db:       0,
+			queueKey: "test-queue",
+			wantErr:  false,
 		},
 		{
-			name:    "Invalid Host",
-			host:    "invalid",
-			port:    "6379",
-			pass:    "",
-			db:      0,
-			wantErr: true,
+			name:     "Invalid Host",
+			host:     "invalid",
+			port:     "6379",
+			pass:     "",
+			db:       0,
+			queueKey: "test-queue",
+			wantErr:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := NewRedisService(tt.host, tt.port, tt.pass, tt.db)
+			client := NewRedisService(tt.host, tt.port, tt.pass, tt.db, tt.queueKey)
 			if tt.wantErr {
 				assert.NotNil(t, client)
 				err := client.Ping(context.Background())
@@ -84,41 +87,41 @@ func TestRedisOperations(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("RPush Success", func(t *testing.T) {
-		mockClient.On("RPush", ctx, "test-key", "test-value").Return(nil)
-		err := mockClient.RPush(ctx, "test-key", "test-value")
+		mockClient.On("RPush", ctx, "test-value").Return(nil)
+		err := mockClient.RPush(ctx, "test-value")
 		assert.NoError(t, err)
 	})
 
 	t.Run("RPush Error", func(t *testing.T) {
-		mockClient.On("RPush", ctx, "test-key", "test-value").Return(redis.ErrClosed)
-		err := mockClient.RPush(ctx, "test-key", "test-value")
+		mockClient.On("RPush", ctx, "test-value").Return(redis.ErrClosed)
+		err := mockClient.RPush(ctx, "test-value")
 		assert.Error(t, err)
 	})
 
 	t.Run("LPop Success", func(t *testing.T) {
-		mockClient.On("LPop", ctx, "test-key").Return("test-value", nil)
-		value, err := mockClient.LPop(ctx, "test-key")
+		mockClient.On("LPop", ctx).Return("test-value", nil)
+		value, err := mockClient.LPop(ctx)
 		assert.NoError(t, err)
 		assert.Equal(t, "test-value", value)
 	})
 
 	t.Run("LPop Error", func(t *testing.T) {
-		mockClient.On("LPop", ctx, "test-key").Return("", redis.ErrClosed)
-		value, err := mockClient.LPop(ctx, "test-key")
+		mockClient.On("LPop", ctx).Return("", redis.ErrClosed)
+		value, err := mockClient.LPop(ctx)
 		assert.Error(t, err)
 		assert.Empty(t, value)
 	})
 
 	t.Run("LLen Success", func(t *testing.T) {
-		mockClient.On("LLen", ctx, "test-key").Return(int64(5), nil)
-		length, err := mockClient.LLen(ctx, "test-key")
+		mockClient.On("LLen", ctx).Return(int64(5), nil)
+		length, err := mockClient.LLen(ctx)
 		assert.NoError(t, err)
 		assert.Equal(t, int64(5), length)
 	})
 
 	t.Run("LLen Error", func(t *testing.T) {
-		mockClient.On("LLen", ctx, "test-key").Return(int64(0), redis.ErrClosed)
-		length, err := mockClient.LLen(ctx, "test-key")
+		mockClient.On("LLen", ctx).Return(int64(0), redis.ErrClosed)
+		length, err := mockClient.LLen(ctx)
 		assert.Error(t, err)
 		assert.Equal(t, int64(0), length)
 	})

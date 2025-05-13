@@ -9,7 +9,6 @@ import (
 	"time"
 
 	externalservices "watcher/external-services"
-	"watcher/interfaces"
 
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -21,40 +20,68 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// Initialize Redis client
-	redisClient := externalservices.NewRedisService(
+	// Create Redis services
+	primaryRedis := externalservices.NewRedisService(
 		config.PrimaryRedis.Host,
 		config.PrimaryRedis.Port,
 		config.PrimaryRedis.Password,
 		config.PrimaryRedis.DB,
+		config.PrimaryRedis.QueueKey,
 	)
 
-	// Initialize Typesense client
-	typesenseClient := externalservices.NewTypesenseService(
+	backupRedis := externalservices.NewRedisService(
+		config.SecondaryRedis.Host,
+		config.SecondaryRedis.Port,
+		config.SecondaryRedis.Password,
+		config.SecondaryRedis.DB,
+		config.SecondaryRedis.QueueKey,
+	)
+
+	// Create MongoDB services
+	watchingMongoDBService := externalservices.NewMongoService(
+		config.PrimaryMongoURI,
+		config.PrimaryMongoDatabase,
+		config.PrimaryMongoCollection,
+	)
+
+	fallbackMongoService := externalservices.NewMongoService(
+		config.FallbackMongoURI,
+		config.FallbackMongoDatabase,
+		config.FallbackMongoCollection,
+	)
+
+	// Create Typesense service
+	typesenseService := externalservices.NewTypesenseService(
 		config.Typesense.APIKey,
 		config.Typesense.Host,
 		config.Typesense.Port,
 		config.Typesense.Protocol,
+		config.Typesense.CollectionName,
 	)
 
-	// Initialize event processor
-	eventProcessor, err := NewEventProcessor(config, redisClient, typesenseClient)
+	eventProcessor, err := NewEventProcessor(
+		typesenseService,
+		primaryRedis,
+		backupRedis,
+		watchingMongoDBService,
+		fallbackMongoService,
+		config.MaxBufferSize,
+		time.Duration(config.FlushInterval)*time.Second,
+	)
 	if err != nil {
 		log.Fatalf("Failed to initialize event processor: %v", err)
 	}
 
-	// Initialize MongoDB service
-	mongoService := externalservices.NewMongoService(
-		config.MongoURI,
-		config.MongoDatabase,
-		config.MongoCollection,
-	)
-
-	// Connect to MongoDB
-	if err := mongoService.Connect(context.Background()); err != nil {
-		log.Fatalf("Failed to connect to MongoDB: %v", err)
+	// Connect to MongoDB services
+	if err := watchingMongoDBService.Connect(context.Background()); err != nil {
+		log.Fatalf("Failed to connect to watching MongoDB: %v", err)
 	}
-	defer mongoService.Disconnect(context.Background())
+	defer watchingMongoDBService.Disconnect(context.Background())
+
+	if err := fallbackMongoService.Connect(context.Background()); err != nil {
+		log.Fatalf("Failed to connect to fallback MongoDB: %v", err)
+	}
+	defer fallbackMongoService.Disconnect(context.Background())
 
 	// Create context that can be cancelled
 	ctx, cancel := context.WithCancel(context.Background())
@@ -73,17 +100,35 @@ func main() {
 	// Start watching MongoDB changes
 	log.Println("Starting MongoDB change stream watcher...")
 	opts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
-	stream, err := mongoService.Watch(ctx, nil, opts)
+	stream, err := watchingMongoDBService.Watch(ctx, nil, opts)
 	if err != nil {
 		log.Fatalf("Error creating change stream: %v", err)
 	}
 	defer stream.Close(ctx)
 
+	// Get the processing state channel
+	processingState := eventProcessor.GetProcessBusyState()
+	isProcessing := false
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case processing := <-processingState:
+			isProcessing = processing
+			if !isProcessing {
+				log.Println("Processing finished, resuming MongoDB event reading")
+			} else {
+				log.Println("Processing started, pausing MongoDB event reading")
+			}
 		default:
+			// Only read from MongoDB if we're not processing
+			if isProcessing {
+				// Sleep briefly to prevent tight loop
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
 			if !stream.Next(ctx) {
 				if err := stream.Err(); err != nil {
 					log.Printf("Change stream error: %v", err)
@@ -103,11 +148,11 @@ func main() {
 				continue
 			}
 
-			event := interfaces.Event{
+			event := externalservices.MongoChangeEvent{
 				OperationType: changeDoc.OperationType,
 				Document:      changeDoc.FullDocument,
 				DocumentID:    changeDoc.DocumentKey["_id"].(string),
-				Timestamp:     changeDoc.ClusterTime,
+				Timestamp:     changeDoc.ClusterTime.Unix(),
 			}
 
 			if err := eventProcessor.Enqueue(ctx, event); err != nil {
