@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,6 +11,7 @@ import (
 	externalservices "watcher/external-services"
 	"watcher/logger"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -21,6 +23,19 @@ func main() {
 		logConfig.Level = logger.LogLevelDebug
 	}
 	logger.Init(logConfig)
+
+	// Start Prometheus metrics server
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		metricsPort := os.Getenv("METRICS_PORT")
+		if metricsPort == "" {
+			metricsPort = "2112" // Default metrics port
+		}
+		logger.Info().Str("port", metricsPort).Msg("Starting Prometheus metrics server")
+		if err := http.ListenAndServe(":"+metricsPort, nil); err != nil {
+			logger.Error().Err(err).Msg("Failed to start metrics server")
+		}
+	}()
 
 	// Load configuration
 	config, err := LoadConfig()

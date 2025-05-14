@@ -28,7 +28,8 @@ type EventProcessor struct {
 	backupFlushInterval    time.Duration
 	stopChan               chan struct{}
 	processBusy            chan bool
-	isNearLimit            chan bool // Channel to signal when buffer is near limit
+	isNearLimit            chan bool         // Channel to signal when buffer is near limit
+	metrics                *MetricsCollector // Add metrics collector
 }
 
 func NewEventProcessor(
@@ -65,7 +66,8 @@ func NewEventProcessor(
 		backupFlushInterval:    backupFlushInterval,
 		stopChan:               make(chan struct{}),
 		processBusy:            make(chan bool, 1),
-		isNearLimit:            make(chan bool, 1), // Buffered channel to prevent blocking
+		isNearLimit:            make(chan bool, 1),    // Buffered channel to prevent blocking
+		metrics:                NewMetricsCollector(), // Initialize metrics collector
 	}
 
 	processor.ticker = time.NewTicker(processInterval)
@@ -86,6 +88,10 @@ func (w *EventProcessor) accumulateEvents() {
 		case event := <-w.eventChan:
 			w.mu.Lock()
 			w.activeBuffer = append(w.activeBuffer, event)
+
+			// Update queue metrics
+			w.metrics.UpdateQueueLength(len(w.eventChan))
+			w.metrics.UpdateBufferSizes(len(w.activeBuffer), len(w.remainingBuffer))
 
 			// Signal when we're 2 items away from maxBufferSize
 			if len(w.activeBuffer) >= (w.maxBufferSize - 2) {
@@ -112,6 +118,7 @@ func (w *EventProcessor) setRemainingBuffer(batch []externalservices.MongoChange
 func (w *EventProcessor) processBatch() {
 	// Signal that processing has started
 	w.processBusy <- true
+	startTime := time.Now()
 	defer func() {
 		w.mu.Lock()
 		// After processing, add any remaining buffer to the start of the active buffer
@@ -119,6 +126,9 @@ func (w *EventProcessor) processBatch() {
 		// Clear the remaining buffer
 		w.remainingBuffer = make([]externalservices.MongoChangeEvent, 0)
 		w.mu.Unlock()
+
+		// Update buffer size metrics
+		w.metrics.UpdateBufferSizes(len(w.activeBuffer), len(w.remainingBuffer))
 
 		// Signal when we're 2 items away from maxBufferSize
 		if len(w.activeBuffer) >= (w.maxBufferSize - 2) {
@@ -133,6 +143,9 @@ func (w *EventProcessor) processBatch() {
 			}
 		}
 
+		// Record batch processing duration
+		w.metrics.RecordBatchProcessingDuration(time.Since(startTime).Seconds())
+
 		// Signal that processing has finished
 		w.processBusy <- false
 	}()
@@ -145,10 +158,14 @@ func (w *EventProcessor) processBatch() {
 	w.activeBuffer = make([]externalservices.MongoChangeEvent, 0)
 	w.mu.Unlock()
 
+	// Record batch size
+	w.metrics.RecordBatchSize(len(batch))
+
 	// Process events in order
 	for i := 0; i < len(batch); i++ {
 		event := batch[i]
 		ctx := context.Background()
+		eventStartTime := time.Now()
 
 		// Log event processing
 		logger.Debug().
@@ -170,19 +187,25 @@ func (w *EventProcessor) processBatch() {
 			w.mu.Lock()
 			w.activeBuffer = append(w.activeBuffer, event)
 			w.mu.Unlock()
+			w.metrics.RecordEventProcessed(event.OperationType, "skipped_nil_document")
 			continue
 		}
 
 		var err error
 		switch event.OperationType {
 		case "insert", "update":
+			opStartTime := time.Now()
 			err = w.typesenseService.UpsertDocument(ctx, event.Document)
+			w.metrics.RecordTypesenseOperationDuration("upsert", time.Since(opStartTime).Seconds())
 		case "delete":
+			opStartTime := time.Now()
 			err = w.typesenseService.DeleteDocument(ctx, event.DocumentID)
+			w.metrics.RecordTypesenseOperationDuration("delete", time.Since(opStartTime).Seconds())
 		default:
 			logger.Warn().
 				Str("operation_type", event.OperationType).
 				Msg("Unsupported operation type")
+			w.metrics.RecordEventProcessed(event.OperationType, "unsupported")
 			continue
 		}
 
@@ -195,11 +218,18 @@ func (w *EventProcessor) processBatch() {
 				Int("batch_size", len(batch)).
 				Msg("Failed to process event")
 
+			w.metrics.RecordEventProcessed(event.OperationType, "error")
+			w.metrics.RecordError("typesense_" + event.OperationType)
+
 			// Store remaining events in backup
 			w.setRemainingBuffer(batch, i)
 			w.backupFlusher.Flush(w.remainingBuffer)
 			return
 		}
+
+		// Record successful event processing
+		w.metrics.RecordEventProcessed(event.OperationType, "success")
+		w.metrics.RecordEventProcessingDuration(event.OperationType, time.Since(eventStartTime).Seconds())
 
 		// Log successful event processing
 		logger.Debug().
