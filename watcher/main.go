@@ -109,8 +109,9 @@ func main() {
 
 	// Get the processing state channel
 	processingState := eventProcessor.GetProcessBusyState()
+	isNearLimitState := eventProcessor.GetNearLimitState()
 	isProcessing := false
-
+	isNearLimit := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -122,9 +123,16 @@ func main() {
 			} else {
 				log.Println("Processing started, pausing MongoDB event reading")
 			}
+		case nearLimitState := <-isNearLimitState:
+			isNearLimit = nearLimitState
+			if !isNearLimit {
+				log.Println("Buffer is not near limit, resuming MongoDB event reading")
+			} else {
+				log.Println("Buffer is near limit, pausing MongoDB event reading")
+			}
 		default:
 			// Only read from MongoDB if we're not processing
-			if isProcessing {
+			if isProcessing || isNearLimit {
 				// Sleep briefly to prevent tight loop
 				time.Sleep(100 * time.Millisecond)
 				continue

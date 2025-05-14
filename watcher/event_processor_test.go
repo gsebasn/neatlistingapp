@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"os"
 	"reflect"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 	externalservices "watcher/external-services"
@@ -348,6 +352,7 @@ func TestEventProcessor_FlushAndClose(t *testing.T) {
 		maxBufferSize:          100,
 		processInterval:        time.Second * 5,
 		stopChan:               make(chan struct{}),
+		isNearLimit:            make(chan bool, 1),
 	}
 
 	// Start the accumulateEvents goroutine
@@ -429,6 +434,7 @@ func TestEventProcessor_StartProcessingTime_WhenThereAreEvents(t *testing.T) {
 		processInterval:        time.Second * 5,
 		stopChan:               make(chan struct{}),
 		ticker:                 ticker,
+		isNearLimit:            make(chan bool, 1),
 	}
 
 	processor := &TestEventProcessor{
@@ -484,6 +490,7 @@ func TestEventProcessor_StartProcessingTime_WhenNoEvents(t *testing.T) {
 		processInterval:        time.Second * 5,
 		stopChan:               make(chan struct{}),
 		ticker:                 ticker,
+		isNearLimit:            make(chan bool, 1),
 	}
 
 	processor := &TestEventProcessor{
@@ -510,4 +517,204 @@ func TestEventProcessor_StartProcessingTime_WhenNoEvents(t *testing.T) {
 
 	// Stop the processor
 	close(processor.stopChan)
+}
+
+func TestEventProcessor_ShutdownScenarios(t *testing.T) {
+	t.Run("Graceful Shutdown", func(t *testing.T) {
+		// Create initial events
+		initialEvents := []externalservices.MongoChangeEvent{
+			{OperationType: "insert", DocumentID: "1", Document: map[string]interface{}{"id": "1"}},
+			{OperationType: "update", DocumentID: "2", Document: map[string]interface{}{"id": "2"}},
+		}
+
+		mockBackupFlusher := NewTestBackupFlusher()
+		processor := &EventProcessor{
+			activeBuffer:           make([]externalservices.MongoChangeEvent, len(initialEvents)),
+			remainingBuffer:        make([]externalservices.MongoChangeEvent, 0),
+			typesenseService:       NewTestTypesenseService(),
+			primaryRedis:           NewTestRedisService(),
+			backupRedis:            NewTestRedisService(),
+			watchingMongoDBService: &TestMongoService{},
+			fallbackMongoService:   &TestMongoService{},
+			processBusy:            make(chan bool, 2), // Increased buffer size
+			done:                   make(chan struct{}),
+			eventChan:              make(chan externalservices.MongoChangeEvent, 100),
+			backupFlusher:          mockBackupFlusher,
+			maxBufferSize:          100,
+			processInterval:        time.Second * 5,
+			stopChan:               make(chan struct{}),
+			isNearLimit:            make(chan bool, 1),
+		}
+
+		// Copy initial events to active buffer
+		copy(processor.activeBuffer, initialEvents)
+
+		// Start the accumulateEvents goroutine with a WaitGroup
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			processor.accumulateEvents()
+		}()
+
+		// Create a channel to simulate shutdown signal
+		sigChan := make(chan os.Signal, 1)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		// Channel to signal when shutdown is complete
+		shutdownComplete := make(chan struct{})
+
+		// Start a goroutine to simulate signal handling
+		go func() {
+			select {
+			case <-sigChan:
+				log.Println("Simulating shutdown signal")
+				processor.FlushAndClose()
+				close(shutdownComplete)
+			case <-ctx.Done():
+				return
+			}
+		}()
+
+		// Simulate receiving a shutdown signal
+		sigChan <- syscall.SIGTERM
+
+		// Wait for shutdown to complete with timeout
+		select {
+		case <-shutdownComplete:
+			// Shutdown completed successfully
+			// Give a small amount of time for accumulateEvents to exit
+			done := make(chan struct{})
+			go func() {
+				wg.Wait()
+				close(done)
+			}()
+			select {
+			case <-done:
+				// accumulateEvents exited successfully
+			case <-time.After(500 * time.Millisecond):
+				t.Fatal("accumulateEvents did not exit in time")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("Shutdown did not complete in time")
+		}
+
+		// Verify backupFlusher was called with the correct events
+		assert.True(t, mockBackupFlusher.flushCalled, "Expected backupFlusher.Flush to be called during shutdown")
+		assert.Equal(t, initialEvents, mockBackupFlusher.lastFlushedEvents, "Expected backupFlusher to be called with initial events")
+
+		// Verify done channel is closed
+		select {
+		case <-processor.done:
+			// Channel is closed as expected
+		default:
+			t.Error("Expected done channel to be closed during shutdown")
+		}
+
+		// Verify eventChan is closed
+		select {
+		case _, ok := <-processor.eventChan:
+			if ok {
+				t.Error("Expected eventChan to be closed during shutdown")
+			}
+		default:
+			t.Error("Expected eventChan to be closed during shutdown")
+		}
+
+		// Verify active buffer is cleared after flushing
+		assert.Equal(t, 0, len(processor.activeBuffer), "Expected active buffer to be cleared after shutdown flush")
+	})
+
+	t.Run("Unexpected Shutdown", func(t *testing.T) {
+		// Create initial events
+		initialEvents := []externalservices.MongoChangeEvent{
+			{OperationType: "insert", DocumentID: "1", Document: map[string]interface{}{"id": "1"}},
+			{OperationType: "update", DocumentID: "2", Document: map[string]interface{}{"id": "2"}},
+		}
+
+		mockBackupFlusher := NewTestBackupFlusher()
+		processor := &EventProcessor{
+			activeBuffer:           make([]externalservices.MongoChangeEvent, len(initialEvents)),
+			remainingBuffer:        make([]externalservices.MongoChangeEvent, 0),
+			typesenseService:       NewTestTypesenseService(),
+			primaryRedis:           NewTestRedisService(),
+			backupRedis:            NewTestRedisService(),
+			watchingMongoDBService: &TestMongoService{},
+			fallbackMongoService:   &TestMongoService{},
+			processBusy:            make(chan bool, 2), // Increased buffer size
+			done:                   make(chan struct{}),
+			eventChan:              make(chan externalservices.MongoChangeEvent, 100),
+			backupFlusher:          mockBackupFlusher,
+			maxBufferSize:          100,
+			processInterval:        time.Second * 5,
+			stopChan:               make(chan struct{}),
+			isNearLimit:            make(chan bool, 1),
+		}
+
+		// Copy initial events to active buffer
+		copy(processor.activeBuffer, initialEvents)
+
+		// Start the accumulateEvents goroutine with a WaitGroup
+		var wg2 sync.WaitGroup
+		wg2.Add(1)
+		go func() {
+			defer wg2.Done()
+			processor.accumulateEvents()
+		}()
+
+		// Channel to signal when shutdown is complete
+		shutdownComplete := make(chan struct{})
+
+		// Simulate an unexpected shutdown in a goroutine
+		go func() {
+			processor.FlushAndClose()
+			close(shutdownComplete)
+		}()
+
+		// Wait for shutdown to complete with timeout
+		select {
+		case <-shutdownComplete:
+			// Shutdown completed successfully
+			// Give a small amount of time for accumulateEvents to exit
+			done := make(chan struct{})
+			go func() {
+				wg2.Wait()
+				close(done)
+			}()
+			select {
+			case <-done:
+				// accumulateEvents exited successfully
+			case <-time.After(500 * time.Millisecond):
+				t.Fatal("accumulateEvents did not exit in time")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("Shutdown did not complete in time")
+		}
+
+		// Verify backupFlusher was called with the correct events
+		assert.True(t, mockBackupFlusher.flushCalled, "Expected backupFlusher.Flush to be called during unexpected shutdown")
+		assert.Equal(t, initialEvents, mockBackupFlusher.lastFlushedEvents, "Expected backupFlusher to be called with initial events")
+
+		// Verify done channel is closed
+		select {
+		case <-processor.done:
+			// Channel is closed as expected
+		default:
+			t.Error("Expected done channel to be closed during unexpected shutdown")
+		}
+
+		// Verify eventChan is closed
+		select {
+		case _, ok := <-processor.eventChan:
+			if ok {
+				t.Error("Expected eventChan to be closed during unexpected shutdown")
+			}
+		default:
+			t.Error("Expected eventChan to be closed during unexpected shutdown")
+		}
+
+		// Verify active buffer is cleared after flushing
+		assert.Equal(t, 0, len(processor.activeBuffer), "Expected active buffer to be cleared after unexpected shutdown flush")
+	})
 }

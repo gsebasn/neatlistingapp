@@ -28,6 +28,7 @@ type EventProcessor struct {
 	backupFlushInterval    time.Duration
 	stopChan               chan struct{}
 	processBusy            chan bool
+	isNearLimit            chan bool // Channel to signal when buffer is near limit
 }
 
 func NewEventProcessor(
@@ -64,6 +65,7 @@ func NewEventProcessor(
 		backupFlushInterval:    backupFlushInterval,
 		stopChan:               make(chan struct{}),
 		processBusy:            make(chan bool, 1),
+		isNearLimit:            make(chan bool, 1), // Buffered channel to prevent blocking
 	}
 
 	processor.ticker = time.NewTicker(processInterval)
@@ -78,11 +80,23 @@ func NewEventProcessor(
 func (w *EventProcessor) accumulateEvents() {
 	for {
 		select {
-		case event := <-w.eventChan:
-			w.activeBuffer = append(w.activeBuffer, event)
 		case <-w.done:
 			close(w.eventChan)
 			return
+		case event := <-w.eventChan:
+			w.mu.Lock()
+			w.activeBuffer = append(w.activeBuffer, event)
+
+			// Signal when we're 2 items away from maxBufferSize
+			if len(w.activeBuffer) >= (w.maxBufferSize - 2) {
+				select {
+				case w.isNearLimit <- true:
+					log.Printf("Buffer approaching limit (%d/%d items)", len(w.activeBuffer), w.maxBufferSize)
+				default:
+					// Channel already has a signal
+				}
+			}
+			w.mu.Unlock()
 		}
 	}
 }
@@ -102,6 +116,17 @@ func (w *EventProcessor) processBatch() {
 		// Clear the remaining buffer
 		w.remainingBuffer = make([]externalservices.MongoChangeEvent, 0)
 		w.mu.Unlock()
+
+		// Signal when we're 2 items away from maxBufferSize
+		if len(w.activeBuffer) >= (w.maxBufferSize - 2) {
+			select {
+			case w.isNearLimit <- true:
+				log.Printf("Buffer approaching limit (%d/%d items)", len(w.activeBuffer), w.maxBufferSize)
+			default:
+				// Channel already has a signal
+			}
+		}
+
 		// Signal that processing has finished
 		w.processBusy <- false
 	}()
@@ -167,8 +192,20 @@ func (w *EventProcessor) FlushAndClose() {
 	// First close the done channel to stop event accumulation
 	close(w.done)
 
+	// Stop the tickers to prevent new processing
+	if w.ticker != nil {
+		w.ticker.Stop()
+	}
+	if w.backupFlushTicker != nil {
+		w.backupFlushTicker.Stop()
+	}
+
 	// Signal that processing has started
-	w.processBusy <- true
+	select {
+	case w.processBusy <- true:
+	default:
+		// If processBusy is full, we'll skip the signal
+	}
 
 	// Get the mutex lock to safely access and clear the buffer
 	w.mu.Lock()
@@ -183,7 +220,15 @@ func (w *EventProcessor) FlushAndClose() {
 	}
 
 	// Signal that processing has finished
-	w.processBusy <- false
+	select {
+	case w.processBusy <- false:
+	default:
+		// If processBusy is full, we'll skip the signal
+	}
+
+	// Close channels to unblock any listeners
+	close(w.stopChan)
+	close(w.isNearLimit)
 }
 
 func (w *EventProcessor) startProcessingTimer() {
@@ -238,11 +283,21 @@ func (w *EventProcessor) startBackupFlushTimer() {
 func (e *EventProcessor) Stop() {
 	close(e.stopChan)
 	close(e.done)
-	e.ticker.Stop()
-	e.backupFlushTicker.Stop()
+	if e.ticker != nil {
+		e.ticker.Stop()
+	}
+	if e.backupFlushTicker != nil {
+		e.backupFlushTicker.Stop()
+	}
+	close(e.isNearLimit)
 }
 
 // GetProcessBusyState returns a channel that signals whether the processor is currently busy processing
 func (w *EventProcessor) GetProcessBusyState() <-chan bool {
 	return w.processBusy
+}
+
+// GetNearLimitState returns a channel that signals whether the buffer is approaching its limit
+func (w *EventProcessor) GetNearLimitState() <-chan bool {
+	return w.isNearLimit
 }
