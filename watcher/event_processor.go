@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 	externalservices "watcher/external-services"
@@ -30,6 +31,7 @@ type EventProcessor struct {
 	processBusy            chan bool
 	isNearLimit            chan bool         // Channel to signal when buffer is near limit
 	metrics                *MetricsCollector // Add metrics collector
+	closed                 bool              // Add closed flag
 }
 
 func NewEventProcessor(
@@ -245,6 +247,12 @@ func (w *EventProcessor) processBatch() {
 }
 
 func (w *EventProcessor) Enqueue(ctx context.Context, event externalservices.MongoChangeEvent) error {
+	w.mu.Lock()
+	if w.closed {
+		w.mu.Unlock()
+		return ErrProcessorClosed
+	}
+	w.mu.Unlock()
 	select {
 	case w.eventChan <- event:
 		return nil
@@ -255,6 +263,9 @@ func (w *EventProcessor) Enqueue(ctx context.Context, event externalservices.Mon
 
 // FlushAndClose flushes any remaining events to backup and then closes the processor.
 func (w *EventProcessor) FlushAndClose() {
+	w.mu.Lock()
+	w.closed = true
+	w.mu.Unlock()
 	// First close the done channel to stop event accumulation
 	close(w.done)
 
@@ -347,6 +358,13 @@ func (w *EventProcessor) startBackupFlushTimer() {
 
 // Stop gracefully stops the event processor
 func (e *EventProcessor) Stop() {
+	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		return
+	}
+	e.closed = true
+	e.mu.Unlock()
 	close(e.stopChan)
 	close(e.done)
 	if e.ticker != nil {
@@ -367,3 +385,6 @@ func (w *EventProcessor) GetProcessBusyState() <-chan bool {
 func (w *EventProcessor) GetNearLimitState() <-chan bool {
 	return w.isNearLimit
 }
+
+// Add error for closed processor
+var ErrProcessorClosed = errors.New("event processor is closed")
