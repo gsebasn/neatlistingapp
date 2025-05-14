@@ -82,9 +82,10 @@ func TestTypesenseOperations(t *testing.T) {
 			"id":   "1",
 			"name": "Test Document",
 		}
-		mockClient.On("UpsertDocument", ctx, document).Return(nil)
+		mockClient.On("UpsertDocument", ctx, document).Return(nil).Once()
 		err := mockClient.UpsertDocument(ctx, document)
 		assert.NoError(t, err)
+		mockClient.AssertExpectations(t)
 	})
 
 	t.Run("UpsertDocument Error", func(t *testing.T) {
@@ -92,21 +93,42 @@ func TestTypesenseOperations(t *testing.T) {
 			"id":   "1",
 			"name": "Test Document",
 		}
-		mockClient.On("UpsertDocument", ctx, document).Return(fmt.Errorf("document not found"))
-		err := mockClient.UpsertDocument(ctx, document)
+		expectedErr := fmt.Errorf("document not found")
+		mockClient.On("UpsertDocument", ctx, document).Return(expectedErr).Once()
+
+		// Create a service that uses our mock client
+		service := &TypesenseService{
+			client:     nil, // This will trigger the error case
+			collection: "test-collection",
+		}
+
+		err := service.UpsertDocument(ctx, document)
 		assert.Error(t, err)
+		assert.Equal(t, expectedErr, err)
+		mockClient.AssertExpectations(t)
 	})
 
 	t.Run("DeleteDocument Success", func(t *testing.T) {
-		mockClient.On("DeleteDocument", ctx, "1").Return(nil)
+		mockClient.On("DeleteDocument", ctx, "1").Return(nil).Once()
 		err := mockClient.DeleteDocument(ctx, "1")
 		assert.NoError(t, err)
+		mockClient.AssertExpectations(t)
 	})
 
 	t.Run("DeleteDocument Error", func(t *testing.T) {
-		mockClient.On("DeleteDocument", ctx, "1").Return(fmt.Errorf("document not found"))
-		err := mockClient.DeleteDocument(ctx, "1")
+		expectedErr := fmt.Errorf("document not found")
+		mockClient.On("DeleteDocument", ctx, "1").Return(expectedErr).Once()
+
+		// Create a service that uses our mock client
+		service := &TypesenseService{
+			client:     nil, // This will trigger the error case
+			collection: "test-collection",
+		}
+
+		err := service.DeleteDocument(ctx, "1")
 		assert.Error(t, err)
+		assert.Equal(t, expectedErr, err)
+		mockClient.AssertExpectations(t)
 	})
 
 	t.Run("ImportDocuments Success", func(t *testing.T) {
@@ -114,9 +136,10 @@ func TestTypesenseOperations(t *testing.T) {
 			map[string]interface{}{"id": "1", "name": "Doc 1"},
 			map[string]interface{}{"id": "2", "name": "Doc 2"},
 		}
-		mockClient.On("ImportDocuments", ctx, documents, "upsert").Return(nil)
+		mockClient.On("ImportDocuments", ctx, documents, "upsert").Return(nil).Once()
 		err := mockClient.ImportDocuments(ctx, documents, "upsert")
 		assert.NoError(t, err)
+		mockClient.AssertExpectations(t)
 	})
 
 	t.Run("ImportDocuments Error", func(t *testing.T) {
@@ -124,8 +147,18 @@ func TestTypesenseOperations(t *testing.T) {
 			map[string]interface{}{"id": "1", "name": "Doc 1"},
 			map[string]interface{}{"id": "2", "name": "Doc 2"},
 		}
-		mockClient.On("ImportDocuments", ctx, documents, "upsert").Return(fmt.Errorf("import failed"))
-		err := mockClient.ImportDocuments(ctx, documents, "upsert")
+		expectedErr := fmt.Errorf("import failed")
+		mockClient.On("ImportDocuments", ctx, documents, "upsert").Return(expectedErr).Once()
+
+		// Create a service that uses our mock client
+		service := &TypesenseService{
+			client:     nil, // This will trigger the error case
+			collection: "test-collection",
+		}
+
+		err := service.ImportDocuments(ctx, documents, "upsert")
 		assert.Error(t, err)
+		assert.Equal(t, expectedErr, err)
+		mockClient.AssertExpectations(t)
 	})
 }

@@ -69,23 +69,35 @@ func TestMongoOperations(t *testing.T) {
 
 	t.Run("Watch Success", func(t *testing.T) {
 		changeStream := &mongo.ChangeStream{}
-		mockClient.On("Watch", ctx, mock.Anything, mock.Anything).Return(changeStream, nil)
+		mockClient.On("Watch", ctx, mock.Anything, mock.Anything).Return(changeStream, nil).Once()
 		stream, err := mockClient.Watch(ctx, nil)
 		assert.NoError(t, err)
 		assert.NotNil(t, stream)
+		mockClient.AssertExpectations(t)
 	})
 
 	t.Run("Watch Error", func(t *testing.T) {
-		mockClient.On("Watch", ctx, mock.Anything, mock.Anything).Return(nil, mongo.ErrClientDisconnected)
-		stream, err := mockClient.Watch(ctx, nil)
+		mockClient.On("Watch", ctx, mock.Anything, mock.Anything).Return((*mongo.ChangeStream)(nil), mongo.ErrClientDisconnected).Once()
+
+		service := &MongoService{
+			client:     nil,
+			database:   "testdb",
+			collection: "testcoll",
+		}
+
+		stream, err := service.Watch(ctx, nil)
+
 		assert.Error(t, err)
 		assert.Nil(t, stream)
+		assert.Equal(t, "client not connected", err.Error())
+		mockClient.AssertExpectations(t)
 	})
 
 	t.Run("Database Success", func(t *testing.T) {
 		db := &mongo.Database{}
-		mockClient.On("Database", "testdb", mock.Anything).Return(db)
+		mockClient.On("Database", "testdb", mock.Anything).Return(db).Once()
 		result := mockClient.Database("testdb")
 		assert.NotNil(t, result)
+		mockClient.AssertExpectations(t)
 	})
 }
