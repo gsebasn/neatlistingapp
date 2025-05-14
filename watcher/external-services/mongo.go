@@ -99,6 +99,9 @@ func (m *MongoChangeStream) Err() error {
 }
 
 func (m *MongoService) GetCollection() *mongo.Collection {
+	if m.client == nil {
+		panic("client not connected")
+	}
 	return m.client.Database(m.database).Collection(m.collection)
 }
 

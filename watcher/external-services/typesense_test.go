@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/typesense/typesense-go/typesense/api"
 )
 
 type MockTypesenseClient struct {
@@ -26,6 +27,56 @@ func (m *MockTypesenseClient) DeleteDocument(ctx context.Context, documentID str
 func (m *MockTypesenseClient) ImportDocuments(ctx context.Context, documents []interface{}, action string) error {
 	args := m.Called(ctx, documents, action)
 	return args.Error(0)
+}
+
+// MockTypesenseDocuments implements TypesenseDocumentsInterface
+type MockTypesenseDocuments struct {
+	mock.Mock
+}
+
+func (m *MockTypesenseDocuments) Upsert(ctx context.Context, document interface{}) (interface{}, error) {
+	args := m.Called(ctx, document)
+	return args.Get(0), args.Error(1)
+}
+
+func (m *MockTypesenseDocuments) Import(ctx context.Context, documents []interface{}, params *api.ImportDocumentsParams) (interface{}, error) {
+	args := m.Called(ctx, documents, params)
+	return args.Get(0), args.Error(1)
+}
+
+// MockTypesenseDocument implements TypesenseDocumentInterface
+type MockTypesenseDocument struct {
+	mock.Mock
+}
+
+func (m *MockTypesenseDocument) Delete(ctx context.Context) (interface{}, error) {
+	args := m.Called(ctx)
+	return args.Get(0), args.Error(1)
+}
+
+// MockTypesenseCollection implements TypesenseCollectionInterface
+type MockTypesenseCollection struct {
+	mock.Mock
+	DocumentsMock TypesenseDocumentsInterface
+	DocumentMock  TypesenseDocumentInterface
+}
+
+func (m *MockTypesenseCollection) Documents() TypesenseDocumentsInterface {
+	return m.DocumentsMock
+}
+
+func (m *MockTypesenseCollection) Document(documentID string) TypesenseDocumentInterface {
+	return m.DocumentMock
+}
+
+// MockTypesenseClientWrapper implements TypesenseClientInterface
+type MockTypesenseClientWrapper struct {
+	mock.Mock
+	CollectionMock TypesenseCollectionInterface
+}
+
+func (m *MockTypesenseClientWrapper) Collection(collectionName string) TypesenseCollectionInterface {
+	return m.CollectionMock
 }
 
 func TestTypesenseClient(t *testing.T) {
@@ -74,91 +125,87 @@ func TestTypesenseClient(t *testing.T) {
 }
 
 func TestTypesenseOperations(t *testing.T) {
-	mockClient := new(MockTypesenseClient)
 	ctx := context.Background()
 
+	document := map[string]interface{}{
+		"id":   "1",
+		"name": "Test Document",
+	}
+	documents := []interface{}{
+		map[string]interface{}{"id": "1", "name": "Doc 1"},
+		map[string]interface{}{"id": "2", "name": "Doc 2"},
+	}
+
 	t.Run("UpsertDocument Success", func(t *testing.T) {
-		document := map[string]interface{}{
-			"id":   "1",
-			"name": "Test Document",
-		}
-		mockClient.On("UpsertDocument", ctx, document).Return(nil).Once()
-		err := mockClient.UpsertDocument(ctx, document)
+		docsMock := new(MockTypesenseDocuments)
+		docsMock.On("Upsert", ctx, document).Return(document, nil).Once()
+		collMock := &MockTypesenseCollection{DocumentsMock: docsMock}
+		clientMock := &MockTypesenseClientWrapper{CollectionMock: collMock}
+		service := &TypesenseService{client: clientMock, collection: "test-collection"}
+		err := service.UpsertDocument(ctx, document)
 		assert.NoError(t, err)
-		mockClient.AssertExpectations(t)
+		docsMock.AssertExpectations(t)
 	})
 
 	t.Run("UpsertDocument Error", func(t *testing.T) {
-		document := map[string]interface{}{
-			"id":   "1",
-			"name": "Test Document",
-		}
-		expectedErr := fmt.Errorf("document not found")
-		mockClient.On("UpsertDocument", ctx, document).Return(expectedErr).Once()
-
-		// Create a service that uses our mock client
-		service := &TypesenseService{
-			client:     nil, // This will trigger the error case
-			collection: "test-collection",
-		}
-
+		docsMock := new(MockTypesenseDocuments)
+		docsMock.On("Upsert", ctx, document).Return(nil, fmt.Errorf("document not found")).Once()
+		collMock := &MockTypesenseCollection{DocumentsMock: docsMock}
+		clientMock := &MockTypesenseClientWrapper{CollectionMock: collMock}
+		service := &TypesenseService{client: clientMock, collection: "test-collection"}
 		err := service.UpsertDocument(ctx, document)
 		assert.Error(t, err)
-		assert.Equal(t, expectedErr, err)
-		mockClient.AssertExpectations(t)
+		assert.EqualError(t, err, "document not found")
+		docsMock.AssertExpectations(t)
 	})
 
 	t.Run("DeleteDocument Success", func(t *testing.T) {
-		mockClient.On("DeleteDocument", ctx, "1").Return(nil).Once()
-		err := mockClient.DeleteDocument(ctx, "1")
+		docMock := new(MockTypesenseDocument)
+		docMock.On("Delete", ctx).Return(document, nil).Once()
+		collMock := &MockTypesenseCollection{DocumentMock: docMock}
+		clientMock := &MockTypesenseClientWrapper{CollectionMock: collMock}
+		service := &TypesenseService{client: clientMock, collection: "test-collection"}
+		err := service.DeleteDocument(ctx, "1")
 		assert.NoError(t, err)
-		mockClient.AssertExpectations(t)
+		docMock.AssertExpectations(t)
 	})
 
 	t.Run("DeleteDocument Error", func(t *testing.T) {
-		expectedErr := fmt.Errorf("document not found")
-		mockClient.On("DeleteDocument", ctx, "1").Return(expectedErr).Once()
-
-		// Create a service that uses our mock client
-		service := &TypesenseService{
-			client:     nil, // This will trigger the error case
-			collection: "test-collection",
-		}
-
+		docMock := new(MockTypesenseDocument)
+		docMock.On("Delete", ctx).Return(nil, fmt.Errorf("document not found")).Once()
+		collMock := &MockTypesenseCollection{DocumentMock: docMock}
+		clientMock := &MockTypesenseClientWrapper{CollectionMock: collMock}
+		service := &TypesenseService{client: clientMock, collection: "test-collection"}
 		err := service.DeleteDocument(ctx, "1")
 		assert.Error(t, err)
-		assert.Equal(t, expectedErr, err)
-		mockClient.AssertExpectations(t)
+		assert.EqualError(t, err, "document not found")
+		docMock.AssertExpectations(t)
 	})
 
 	t.Run("ImportDocuments Success", func(t *testing.T) {
-		documents := []interface{}{
-			map[string]interface{}{"id": "1", "name": "Doc 1"},
-			map[string]interface{}{"id": "2", "name": "Doc 2"},
-		}
-		mockClient.On("ImportDocuments", ctx, documents, "upsert").Return(nil).Once()
-		err := mockClient.ImportDocuments(ctx, documents, "upsert")
+		docsMock := new(MockTypesenseDocuments)
+		params := &api.ImportDocumentsParams{Action: ptrString("upsert")}
+		docsMock.On("Import", ctx, documents, params).Return(nil, nil).Once()
+		collMock := &MockTypesenseCollection{DocumentsMock: docsMock}
+		clientMock := &MockTypesenseClientWrapper{CollectionMock: collMock}
+		service := &TypesenseService{client: clientMock, collection: "test-collection"}
+		err := service.ImportDocuments(ctx, documents, "upsert")
 		assert.NoError(t, err)
-		mockClient.AssertExpectations(t)
+		docsMock.AssertExpectations(t)
 	})
 
 	t.Run("ImportDocuments Error", func(t *testing.T) {
-		documents := []interface{}{
-			map[string]interface{}{"id": "1", "name": "Doc 1"},
-			map[string]interface{}{"id": "2", "name": "Doc 2"},
-		}
-		expectedErr := fmt.Errorf("import failed")
-		mockClient.On("ImportDocuments", ctx, documents, "upsert").Return(expectedErr).Once()
-
-		// Create a service that uses our mock client
-		service := &TypesenseService{
-			client:     nil, // This will trigger the error case
-			collection: "test-collection",
-		}
-
+		docsMock := new(MockTypesenseDocuments)
+		params := &api.ImportDocumentsParams{Action: ptrString("upsert")}
+		docsMock.On("Import", ctx, documents, params).Return(nil, fmt.Errorf("import failed")).Once()
+		collMock := &MockTypesenseCollection{DocumentsMock: docsMock}
+		clientMock := &MockTypesenseClientWrapper{CollectionMock: collMock}
+		service := &TypesenseService{client: clientMock, collection: "test-collection"}
 		err := service.ImportDocuments(ctx, documents, "upsert")
 		assert.Error(t, err)
-		assert.Equal(t, expectedErr, err)
-		mockClient.AssertExpectations(t)
+		assert.EqualError(t, err, "import failed")
+		docsMock.AssertExpectations(t)
 	})
 }
+
+func ptrString(s string) *string { return &s }

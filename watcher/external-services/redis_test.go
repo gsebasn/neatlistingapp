@@ -38,6 +38,39 @@ func (m *MockRedisClient) Ping(ctx context.Context) error {
 	return args.Error(0)
 }
 
+// MockRedisClientWrapper implements RedisClientInterface
+type MockRedisClientWrapper struct {
+	mock.Mock
+}
+
+func (m *MockRedisClientWrapper) RPush(ctx context.Context, key string, value ...interface{}) *redis.IntCmd {
+	args := m.Called(ctx, key, value)
+	return args.Get(0).(*redis.IntCmd)
+}
+
+func (m *MockRedisClientWrapper) LPop(ctx context.Context, key string) *redis.StringCmd {
+	args := m.Called(ctx, key)
+	return args.Get(0).(*redis.StringCmd)
+}
+
+func (m *MockRedisClientWrapper) LLen(ctx context.Context, key string) *redis.IntCmd {
+	args := m.Called(ctx, key)
+	return args.Get(0).(*redis.IntCmd)
+}
+
+func (m *MockRedisClientWrapper) ConfigSet(ctx context.Context, parameter, value string) *redis.StatusCmd {
+	args := m.Called(ctx, parameter, value)
+	return args.Get(0).(*redis.StatusCmd)
+}
+
+func (m *MockRedisClientWrapper) Ping(ctx context.Context) *redis.StatusCmd {
+	args := m.Called(ctx)
+	return args.Get(0).(*redis.StatusCmd)
+}
+
+// Ensure MockRedisClientWrapper implements RedisClientInterface
+var _ RedisClientInterface = (*MockRedisClientWrapper)(nil)
+
 func TestRedisClient(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -83,125 +116,174 @@ func TestRedisClient(t *testing.T) {
 }
 
 func TestRedisOperations(t *testing.T) {
-	mockClient := new(MockRedisClient)
 	ctx := context.Background()
 
 	t.Run("RPush Success", func(t *testing.T) {
-		mockClient.On("RPush", ctx, "test-value").Return(nil).Once()
-		err := mockClient.RPush(ctx, "test-value")
+		mockWrapper := new(MockRedisClientWrapper)
+		mockCmd := redis.NewIntCmd(ctx)
+		mockCmd.SetVal(1)
+		mockWrapper.On("RPush", ctx, "test-queue", mock.Anything).Return(mockCmd)
+
+		service := &RedisService{
+			client:   mockWrapper,
+			queueKey: "test-queue",
+		}
+
+		err := service.RPush(ctx, "test-value")
 		assert.NoError(t, err)
-		mockClient.AssertExpectations(t)
+		mockWrapper.AssertExpectations(t)
 	})
 
 	t.Run("RPush Error", func(t *testing.T) {
-		expectedErr := redis.ErrClosed
-		mockClient.On("RPush", ctx, "test-value").Return(expectedErr).Once()
+		mockWrapper := new(MockRedisClientWrapper)
+		mockCmd := redis.NewIntCmd(ctx)
+		mockCmd.SetErr(redis.ErrClosed)
+		mockWrapper.On("RPush", ctx, "test-queue", mock.Anything).Return(mockCmd)
 
-		// Create a service that uses our mock client
 		service := &RedisService{
-			client:   nil, // This will trigger the error case
+			client:   mockWrapper,
 			queueKey: "test-queue",
 		}
 
 		err := service.RPush(ctx, "test-value")
 		assert.Error(t, err)
-		assert.Equal(t, expectedErr, err)
-		mockClient.AssertExpectations(t)
+		assert.Equal(t, redis.ErrClosed, err)
+		mockWrapper.AssertExpectations(t)
 	})
 
 	t.Run("LPop Success", func(t *testing.T) {
-		mockClient.On("LPop", ctx).Return("test-value", nil).Once()
-		value, err := mockClient.LPop(ctx)
+		mockWrapper := new(MockRedisClientWrapper)
+		mockCmd := redis.NewStringCmd(ctx)
+		mockCmd.SetVal("test-value")
+		mockWrapper.On("LPop", ctx, "test-queue").Return(mockCmd)
+
+		service := &RedisService{
+			client:   mockWrapper,
+			queueKey: "test-queue",
+		}
+
+		value, err := service.LPop(ctx)
 		assert.NoError(t, err)
 		assert.Equal(t, "test-value", value)
-		mockClient.AssertExpectations(t)
+		mockWrapper.AssertExpectations(t)
 	})
 
 	t.Run("LPop Error", func(t *testing.T) {
-		expectedErr := redis.ErrClosed
-		mockClient.On("LPop", ctx).Return("", expectedErr).Once()
+		mockWrapper := new(MockRedisClientWrapper)
+		mockCmd := redis.NewStringCmd(ctx)
+		mockCmd.SetErr(redis.ErrClosed)
+		mockWrapper.On("LPop", ctx, "test-queue").Return(mockCmd)
 
-		// Create a service that uses our mock client
 		service := &RedisService{
-			client:   nil, // This will trigger the error case
+			client:   mockWrapper,
 			queueKey: "test-queue",
 		}
 
 		value, err := service.LPop(ctx)
 		assert.Error(t, err)
 		assert.Empty(t, value)
-		assert.Equal(t, expectedErr, err)
-		mockClient.AssertExpectations(t)
+		assert.Equal(t, redis.ErrClosed, err)
+		mockWrapper.AssertExpectations(t)
 	})
 
 	t.Run("LLen Success", func(t *testing.T) {
-		mockClient.On("LLen", ctx).Return(int64(5), nil).Once()
-		length, err := mockClient.LLen(ctx)
+		mockWrapper := new(MockRedisClientWrapper)
+		mockCmd := redis.NewIntCmd(ctx)
+		mockCmd.SetVal(5)
+		mockWrapper.On("LLen", ctx, "test-queue").Return(mockCmd)
+
+		service := &RedisService{
+			client:   mockWrapper,
+			queueKey: "test-queue",
+		}
+
+		length, err := service.LLen(ctx)
 		assert.NoError(t, err)
 		assert.Equal(t, int64(5), length)
-		mockClient.AssertExpectations(t)
+		mockWrapper.AssertExpectations(t)
 	})
 
 	t.Run("LLen Error", func(t *testing.T) {
-		expectedErr := redis.ErrClosed
-		mockClient.On("LLen", ctx).Return(int64(0), expectedErr).Once()
+		mockWrapper := new(MockRedisClientWrapper)
+		mockCmd := redis.NewIntCmd(ctx)
+		mockCmd.SetErr(redis.ErrClosed)
+		mockWrapper.On("LLen", ctx, "test-queue").Return(mockCmd)
 
-		// Create a service that uses our mock client
 		service := &RedisService{
-			client:   nil, // This will trigger the error case
+			client:   mockWrapper,
 			queueKey: "test-queue",
 		}
 
 		length, err := service.LLen(ctx)
 		assert.Error(t, err)
 		assert.Equal(t, int64(0), length)
-		assert.Equal(t, expectedErr, err)
-		mockClient.AssertExpectations(t)
+		assert.Equal(t, redis.ErrClosed, err)
+		mockWrapper.AssertExpectations(t)
 	})
 
 	t.Run("ConfigSet Success", func(t *testing.T) {
-		mockClient.On("ConfigSet", ctx, "maxmemory", "2gb").Return(nil).Once()
-		err := mockClient.ConfigSet(ctx, "maxmemory", "2gb")
+		mockWrapper := new(MockRedisClientWrapper)
+		mockCmd := redis.NewStatusCmd(ctx)
+		mockCmd.SetVal("OK")
+		mockWrapper.On("ConfigSet", ctx, "maxmemory", "2gb").Return(mockCmd)
+
+		service := &RedisService{
+			client:   mockWrapper,
+			queueKey: "test-queue",
+		}
+
+		err := service.ConfigSet(ctx, "maxmemory", "2gb")
 		assert.NoError(t, err)
-		mockClient.AssertExpectations(t)
+		mockWrapper.AssertExpectations(t)
 	})
 
 	t.Run("ConfigSet Error", func(t *testing.T) {
-		expectedErr := redis.ErrClosed
-		mockClient.On("ConfigSet", ctx, "maxmemory", "2gb").Return(expectedErr).Once()
+		mockWrapper := new(MockRedisClientWrapper)
+		mockCmd := redis.NewStatusCmd(ctx)
+		mockCmd.SetErr(redis.ErrClosed)
+		mockWrapper.On("ConfigSet", ctx, "maxmemory", "2gb").Return(mockCmd)
 
-		// Create a service that uses our mock client
 		service := &RedisService{
-			client:   nil, // This will trigger the error case
+			client:   mockWrapper,
 			queueKey: "test-queue",
 		}
 
 		err := service.ConfigSet(ctx, "maxmemory", "2gb")
 		assert.Error(t, err)
-		assert.Equal(t, expectedErr, err)
-		mockClient.AssertExpectations(t)
+		assert.Equal(t, redis.ErrClosed, err)
+		mockWrapper.AssertExpectations(t)
 	})
 
 	t.Run("Ping Success", func(t *testing.T) {
-		mockClient.On("Ping", ctx).Return(nil).Once()
-		err := mockClient.Ping(ctx)
+		mockWrapper := new(MockRedisClientWrapper)
+		mockCmd := redis.NewStatusCmd(ctx)
+		mockCmd.SetVal("PONG")
+		mockWrapper.On("Ping", ctx).Return(mockCmd)
+
+		service := &RedisService{
+			client:   mockWrapper,
+			queueKey: "test-queue",
+		}
+
+		err := service.Ping(ctx)
 		assert.NoError(t, err)
-		mockClient.AssertExpectations(t)
+		mockWrapper.AssertExpectations(t)
 	})
 
 	t.Run("Ping Error", func(t *testing.T) {
-		expectedErr := redis.ErrClosed
-		mockClient.On("Ping", ctx).Return(expectedErr).Once()
+		mockWrapper := new(MockRedisClientWrapper)
+		mockCmd := redis.NewStatusCmd(ctx)
+		mockCmd.SetErr(redis.ErrClosed)
+		mockWrapper.On("Ping", ctx).Return(mockCmd)
 
-		// Create a service that uses our mock client
 		service := &RedisService{
-			client:   nil, // This will trigger the error case
+			client:   mockWrapper,
 			queueKey: "test-queue",
 		}
 
 		err := service.Ping(ctx)
 		assert.Error(t, err)
-		assert.Equal(t, expectedErr, err)
-		mockClient.AssertExpectations(t)
+		assert.Equal(t, redis.ErrClosed, err)
+		mockWrapper.AssertExpectations(t)
 	})
 }

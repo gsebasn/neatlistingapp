@@ -2,22 +2,30 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	externalservices "watcher/external-services"
+	"watcher/logger"
 
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func main() {
+	// Initialize logger
+	logConfig := logger.DefaultConfig()
+	if os.Getenv("ENV") == "development" {
+		logConfig.Pretty = true
+		logConfig.Level = logger.LogLevelDebug
+	}
+	logger.Init(logConfig)
+
 	// Load configuration
 	config, err := LoadConfig()
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		logger.Fatal().Err(err).Msg("Failed to load configuration")
 	}
 
 	// Create Redis services
@@ -70,17 +78,17 @@ func main() {
 		time.Duration(config.ProcessInterval)*time.Second*2,
 	)
 	if err != nil {
-		log.Fatalf("Failed to initialize event processor: %v", err)
+		logger.Fatal().Err(err).Msg("Failed to initialize event processor")
 	}
 
 	// Connect to MongoDB services
 	if err := watchingMongoDBService.Connect(context.Background()); err != nil {
-		log.Fatalf("Failed to connect to watching MongoDB: %v", err)
+		logger.Fatal().Err(err).Msg("Failed to connect to watching MongoDB")
 	}
 	defer watchingMongoDBService.Disconnect(context.Background())
 
 	if err := fallbackMongoService.Connect(context.Background()); err != nil {
-		log.Fatalf("Failed to connect to fallback MongoDB: %v", err)
+		logger.Fatal().Err(err).Msg("Failed to connect to fallback MongoDB")
 	}
 	defer fallbackMongoService.Disconnect(context.Background())
 
@@ -94,16 +102,16 @@ func main() {
 
 	go func() {
 		<-sigChan
-		log.Println("Received shutdown signal")
+		logger.Info().Msg("Received shutdown signal")
 		cancel()
 	}()
 
 	// Start watching MongoDB changes
-	log.Println("Starting MongoDB change stream watcher...")
+	logger.Info().Msg("Starting MongoDB change stream watcher...")
 	opts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
 	stream, err := watchingMongoDBService.Watch(ctx, nil, opts)
 	if err != nil {
-		log.Fatalf("Error creating change stream: %v", err)
+		logger.Fatal().Err(err).Msg("Error creating change stream")
 	}
 	defer stream.Close(ctx)
 
@@ -119,16 +127,16 @@ func main() {
 		case processing := <-processingState:
 			isProcessing = processing
 			if !isProcessing {
-				log.Println("Processing finished, resuming MongoDB event reading")
+				logger.Info().Msg("Processing finished, resuming MongoDB event reading")
 			} else {
-				log.Println("Processing started, pausing MongoDB event reading")
+				logger.Info().Msg("Processing started, pausing MongoDB event reading")
 			}
 		case nearLimitState := <-isNearLimitState:
 			isNearLimit = nearLimitState
 			if !isNearLimit {
-				log.Println("Buffer is not near limit, resuming MongoDB event reading")
+				logger.Info().Msg("Buffer is not near limit, resuming MongoDB event reading")
 			} else {
-				log.Println("Buffer is near limit, pausing MongoDB event reading")
+				logger.Info().Msg("Buffer is near limit, pausing MongoDB event reading")
 			}
 		default:
 			// Only read from MongoDB if we're not processing
@@ -140,7 +148,7 @@ func main() {
 
 			if !stream.Next(ctx) {
 				if err := stream.Err(); err != nil {
-					log.Printf("Change stream error: %v", err)
+					logger.Error().Err(err).Msg("Change stream error")
 				}
 				continue
 			}
@@ -153,7 +161,7 @@ func main() {
 			}
 
 			if err := stream.Decode(&changeDoc); err != nil {
-				log.Printf("Failed to decode change document: %v", err)
+				logger.Error().Err(err).Msg("Failed to decode change document")
 				continue
 			}
 
@@ -165,7 +173,7 @@ func main() {
 			}
 
 			if err := eventProcessor.Enqueue(ctx, event); err != nil {
-				log.Printf("Failed to enqueue event: %v", err)
+				logger.Error().Err(err).Msg("Failed to enqueue event")
 			}
 		}
 	}

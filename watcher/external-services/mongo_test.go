@@ -77,8 +77,6 @@ func TestMongoOperations(t *testing.T) {
 	})
 
 	t.Run("Watch Error", func(t *testing.T) {
-		mockClient.On("Watch", ctx, mock.Anything, mock.Anything).Return((*mongo.ChangeStream)(nil), mongo.ErrClientDisconnected).Once()
-
 		service := &MongoService{
 			client:     nil,
 			database:   "testdb",
@@ -86,18 +84,31 @@ func TestMongoOperations(t *testing.T) {
 		}
 
 		stream, err := service.Watch(ctx, nil)
-
 		assert.Error(t, err)
 		assert.Nil(t, stream)
 		assert.Equal(t, "client not connected", err.Error())
-		mockClient.AssertExpectations(t)
 	})
 
 	t.Run("Database Success", func(t *testing.T) {
-		db := &mongo.Database{}
-		mockClient.On("Database", "testdb", mock.Anything).Return(db).Once()
-		result := mockClient.Database("testdb")
-		assert.NotNil(t, result)
-		mockClient.AssertExpectations(t)
+		service := &MongoService{
+			client:     &mongo.Client{},
+			database:   "testdb",
+			collection: "testcoll",
+		}
+
+		collection := service.GetCollection()
+		assert.NotNil(t, collection)
+	})
+
+	t.Run("Database Error", func(t *testing.T) {
+		service := &MongoService{
+			client:     nil,
+			database:   "testdb",
+			collection: "testcoll",
+		}
+
+		assert.Panics(t, func() {
+			service.GetCollection()
+		})
 	})
 }

@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 	externalservices "watcher/external-services"
+	"watcher/logger"
 )
 
 type EventProcessor struct {
@@ -91,7 +91,10 @@ func (w *EventProcessor) accumulateEvents() {
 			if len(w.activeBuffer) >= (w.maxBufferSize - 2) {
 				select {
 				case w.isNearLimit <- true:
-					log.Printf("Buffer approaching limit (%d/%d items)", len(w.activeBuffer), w.maxBufferSize)
+					logger.Warn().
+						Int("buffer_size", len(w.activeBuffer)).
+						Int("max_buffer_size", w.maxBufferSize).
+						Msg("Buffer approaching limit")
 				default:
 					// Channel already has a signal
 				}
@@ -121,7 +124,10 @@ func (w *EventProcessor) processBatch() {
 		if len(w.activeBuffer) >= (w.maxBufferSize - 2) {
 			select {
 			case w.isNearLimit <- true:
-				log.Printf("Buffer approaching limit (%d/%d items)", len(w.activeBuffer), w.maxBufferSize)
+				logger.Warn().
+					Int("buffer_size", len(w.activeBuffer)).
+					Int("max_buffer_size", w.maxBufferSize).
+					Msg("Buffer approaching limit")
 			default:
 				// Channel already has a signal
 			}
@@ -140,42 +146,72 @@ func (w *EventProcessor) processBatch() {
 	w.mu.Unlock()
 
 	// Process events in order
-	for i, event := range batch {
-		select {
-		case <-w.done:
-			return
-		default:
-			var err error
-			switch event.OperationType {
-			case "insert", "update":
-				err = retryOperation(context.Background(), func() error {
-					return w.typesenseService.UpsertDocument(context.Background(), event.Document)
-				}, 3, time.Second)
+	for i := 0; i < len(batch); i++ {
+		event := batch[i]
+		ctx := context.Background()
 
-				if err != nil {
-					log.Printf("Failed to upsert document in Typesense after retries (ID: %s): %v",
-						event.DocumentID, err)
-					w.setRemainingBuffer(batch, i)
-					return
-				}
-			case "delete":
-				err = retryOperation(context.Background(), func() error {
-					return w.typesenseService.DeleteDocument(context.Background(), event.DocumentID)
-				}, 3, time.Second)
+		// Log event processing
+		logger.Debug().
+			Str("operation_type", event.OperationType).
+			Str("document_id", event.DocumentID).
+			Int64("timestamp", event.Timestamp).
+			Int("batch_position", i+1).
+			Int("batch_size", len(batch)).
+			Msg("Processing event")
 
-				if err != nil {
-					log.Printf("Failed to delete document from Typesense after retries (ID: %s): %v",
-						event.DocumentID, err)
-					w.setRemainingBuffer(batch, i)
-					return
-				}
-			}
+		// For insert/update operations with nil documents, keep them in the active buffer
+		if (event.OperationType == "insert" || event.OperationType == "update") && event.Document == nil {
+			logger.Warn().
+				Str("operation_type", event.OperationType).
+				Str("document_id", event.DocumentID).
+				Int("batch_position", i+1).
+				Int("batch_size", len(batch)).
+				Msg("Keeping event with nil document in active buffer")
+			w.mu.Lock()
+			w.activeBuffer = append(w.activeBuffer, event)
+			w.mu.Unlock()
+			continue
 		}
+
+		var err error
+		switch event.OperationType {
+		case "insert", "update":
+			err = w.typesenseService.UpsertDocument(ctx, event.Document)
+		case "delete":
+			err = w.typesenseService.DeleteDocument(ctx, event.DocumentID)
+		default:
+			logger.Warn().
+				Str("operation_type", event.OperationType).
+				Msg("Unsupported operation type")
+			continue
+		}
+
+		if err != nil {
+			logger.Error().
+				Err(err).
+				Str("operation_type", event.OperationType).
+				Str("document_id", event.DocumentID).
+				Int("batch_position", i+1).
+				Int("batch_size", len(batch)).
+				Msg("Failed to process event")
+
+			// Store remaining events in backup
+			w.setRemainingBuffer(batch, i)
+			w.backupFlusher.Flush(w.remainingBuffer)
+			return
+		}
+
+		// Log successful event processing
+		logger.Debug().
+			Str("operation_type", event.OperationType).
+			Str("document_id", event.DocumentID).
+			Int("batch_position", i+1).
+			Int("batch_size", len(batch)).
+			Msg("Successfully processed event")
 	}
 
-	w.mu.Lock()
+	// Update last flush time
 	w.lastFlush = time.Now()
-	w.mu.Unlock()
 }
 
 func (w *EventProcessor) Enqueue(ctx context.Context, event externalservices.MongoChangeEvent) error {
