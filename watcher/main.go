@@ -9,20 +9,29 @@ import (
 	"time"
 
 	externalservices "watcher/external-services"
-	"watcher/logger"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func main() {
-	// Initialize logger
-	logConfig := logger.DefaultConfig()
-	if os.Getenv("ENV") == "development" {
-		logConfig.Pretty = true
-		logConfig.Level = logger.LogLevelDebug
+	// Configurable zerolog log level and time format
+	if lvlStr := os.Getenv("LOG_LEVEL"); lvlStr != "" {
+		if lvl, err := zerolog.ParseLevel(lvlStr); err == nil {
+			zerolog.SetGlobalLevel(lvl)
+		} else {
+			log.Warn().Str("LOG_LEVEL", lvlStr).Msg("Invalid log level, using default")
+		}
 	}
-	logger.Init(logConfig)
+	if tf := os.Getenv("LOG_TIME_FORMAT"); tf != "" {
+		if tf == "unix" {
+			zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+		} else {
+			zerolog.TimeFieldFormat = tf
+		}
+	}
 
 	// Start Prometheus metrics server
 	go func() {
@@ -31,16 +40,16 @@ func main() {
 		if metricsPort == "" {
 			metricsPort = "2112" // Default metrics port
 		}
-		logger.Info().Str("port", metricsPort).Msg("Starting Prometheus metrics server")
+		log.Info().Str("port", metricsPort).Msg("Starting Prometheus metrics server")
 		if err := http.ListenAndServe(":"+metricsPort, nil); err != nil {
-			logger.Error().Err(err).Msg("Failed to start metrics server")
+			log.Error().Err(err).Msg("Failed to start metrics server")
 		}
 	}()
 
 	// Load configuration
 	config, err := LoadConfig()
 	if err != nil {
-		logger.Fatal().Err(err).Msg("Failed to load configuration")
+		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
 
 	// Create Redis services
@@ -93,17 +102,17 @@ func main() {
 		time.Duration(config.ProcessInterval)*time.Second*2,
 	)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("Failed to initialize event processor")
+		log.Fatal().Err(err).Msg("Failed to initialize event processor")
 	}
 
 	// Connect to MongoDB services
 	if err := watchingMongoDBService.Connect(context.Background()); err != nil {
-		logger.Fatal().Err(err).Msg("Failed to connect to watching MongoDB")
+		log.Fatal().Err(err).Msg("Failed to connect to watching MongoDB")
 	}
 	defer watchingMongoDBService.Disconnect(context.Background())
 
 	if err := fallbackMongoService.Connect(context.Background()); err != nil {
-		logger.Fatal().Err(err).Msg("Failed to connect to fallback MongoDB")
+		log.Fatal().Err(err).Msg("Failed to connect to fallback MongoDB")
 	}
 	defer fallbackMongoService.Disconnect(context.Background())
 
@@ -117,16 +126,16 @@ func main() {
 
 	go func() {
 		<-sigChan
-		logger.Info().Msg("Received shutdown signal")
+		log.Info().Msg("Received shutdown signal")
 		cancel()
 	}()
 
 	// Start watching MongoDB changes
-	logger.Info().Msg("Starting MongoDB change stream watcher...")
+	log.Info().Msg("Starting MongoDB change stream watcher...")
 	opts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
 	stream, err := watchingMongoDBService.Watch(ctx, nil, opts)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("Error creating change stream")
+		log.Fatal().Err(err).Msg("Error creating change stream")
 	}
 	defer stream.Close(ctx)
 
@@ -142,16 +151,16 @@ func main() {
 		case processing := <-processingState:
 			isProcessing = processing
 			if !isProcessing {
-				logger.Info().Msg("Processing finished, resuming MongoDB event reading")
+				log.Info().Msg("Processing finished, resuming MongoDB event reading")
 			} else {
-				logger.Info().Msg("Processing started, pausing MongoDB event reading")
+				log.Info().Msg("Processing started, pausing MongoDB event reading")
 			}
 		case nearLimitState := <-isNearLimitState:
 			isNearLimit = nearLimitState
 			if !isNearLimit {
-				logger.Info().Msg("Buffer is not near limit, resuming MongoDB event reading")
+				log.Info().Msg("Buffer is not near limit, resuming MongoDB event reading")
 			} else {
-				logger.Info().Msg("Buffer is near limit, pausing MongoDB event reading")
+				log.Info().Msg("Buffer is near limit, pausing MongoDB event reading")
 			}
 		default:
 			// Only read from MongoDB if we're not processing
@@ -163,7 +172,7 @@ func main() {
 
 			if !stream.Next(ctx) {
 				if err := stream.Err(); err != nil {
-					logger.Error().Err(err).Msg("Change stream error")
+					log.Error().Err(err).Msg("Change stream error")
 				}
 				continue
 			}
@@ -176,7 +185,7 @@ func main() {
 			}
 
 			if err := stream.Decode(&changeDoc); err != nil {
-				logger.Error().Err(err).Msg("Failed to decode change document")
+				log.Error().Err(err).Msg("Failed to decode change document")
 				continue
 			}
 
@@ -188,7 +197,7 @@ func main() {
 			}
 
 			if err := eventProcessor.Enqueue(ctx, event); err != nil {
-				logger.Error().Err(err).Msg("Failed to enqueue event")
+				log.Error().Err(err).Msg("Failed to enqueue event")
 			}
 		}
 	}

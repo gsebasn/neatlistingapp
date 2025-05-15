@@ -6,7 +6,8 @@ import (
 	"sync"
 	"time"
 	externalservices "watcher/external-services"
-	"watcher/logger"
+
+	"github.com/rs/zerolog/log"
 )
 
 type EventProcessor struct {
@@ -99,7 +100,7 @@ func (w *EventProcessor) accumulateEvents() {
 			if len(w.activeBuffer) >= (w.maxBufferSize - 2) {
 				select {
 				case w.isNearLimit <- true:
-					logger.Warn().
+					log.Warn().
 						Int("buffer_size", len(w.activeBuffer)).
 						Int("max_buffer_size", w.maxBufferSize).
 						Msg("Buffer approaching limit")
@@ -136,7 +137,7 @@ func (w *EventProcessor) processBatch() {
 		if len(w.activeBuffer) >= (w.maxBufferSize - 2) {
 			select {
 			case w.isNearLimit <- true:
-				logger.Warn().
+				log.Warn().
 					Int("buffer_size", len(w.activeBuffer)).
 					Int("max_buffer_size", w.maxBufferSize).
 					Msg("Buffer approaching limit")
@@ -170,7 +171,7 @@ func (w *EventProcessor) processBatch() {
 		eventStartTime := time.Now()
 
 		// Log event processing
-		logger.Debug().
+		log.Debug().
 			Str("operation_type", event.OperationType).
 			Str("document_id", event.DocumentID).
 			Int64("timestamp", event.Timestamp).
@@ -180,7 +181,7 @@ func (w *EventProcessor) processBatch() {
 
 		// For insert/update operations with nil documents, keep them in the active buffer
 		if (event.OperationType == "insert" || event.OperationType == "update") && event.Document == nil {
-			logger.Warn().
+			log.Warn().
 				Str("operation_type", event.OperationType).
 				Str("document_id", event.DocumentID).
 				Int("batch_position", i+1).
@@ -204,7 +205,7 @@ func (w *EventProcessor) processBatch() {
 			err = w.typesenseService.DeleteDocument(ctx, event.DocumentID)
 			w.metrics.RecordTypesenseOperationDuration("delete", time.Since(opStartTime).Seconds())
 		default:
-			logger.Warn().
+			log.Warn().
 				Str("operation_type", event.OperationType).
 				Msg("Unsupported operation type")
 			w.metrics.RecordEventProcessed(event.OperationType, "unsupported")
@@ -212,7 +213,7 @@ func (w *EventProcessor) processBatch() {
 		}
 
 		if err != nil {
-			logger.Error().
+			log.Error().
 				Err(err).
 				Str("operation_type", event.OperationType).
 				Str("document_id", event.DocumentID).
@@ -234,7 +235,7 @@ func (w *EventProcessor) processBatch() {
 		w.metrics.RecordEventProcessingDuration(event.OperationType, time.Since(eventStartTime).Seconds())
 
 		// Log successful event processing
-		logger.Debug().
+		log.Debug().
 			Str("operation_type", event.OperationType).
 			Str("document_id", event.DocumentID).
 			Int("batch_position", i+1).

@@ -7,7 +7,8 @@ import (
 	"sync"
 	"time"
 	externalservices "watcher/external-services"
-	"watcher/logger"
+
+	"github.com/rs/zerolog/log"
 
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -42,7 +43,7 @@ func NewBackupFlusher(
 
 // Flush stores events in the backup queue
 func (b *BackupFlusher) Flush(events []externalservices.MongoChangeEvent) {
-	logger.Info().
+	log.Info().
 		Int("event_count", len(events)).
 		Msg("Starting backup flush operation")
 
@@ -59,7 +60,7 @@ func (b *BackupFlusher) Flush(events []externalservices.MongoChangeEvent) {
 	go func() {
 		defer wg.Done()
 		if err := b.storeInFallback(context.Background(), events...); err != nil {
-			logger.Error().
+			log.Error().
 				Err(err).
 				Int("event_count", len(events)).
 				Msg("Failed to store events in fallback MongoDB")
@@ -67,7 +68,7 @@ func (b *BackupFlusher) Flush(events []externalservices.MongoChangeEvent) {
 	}()
 
 	wg.Wait()
-	logger.Info().
+	log.Info().
 		Int("event_count", len(events)).
 		Msg("Completed backup flush operation")
 }
@@ -75,7 +76,7 @@ func (b *BackupFlusher) Flush(events []externalservices.MongoChangeEvent) {
 func (b *BackupFlusher) FlushToRedis(events []externalservices.MongoChangeEvent) {
 	eventsJSON, err := json.Marshal(events)
 	if err != nil {
-		logger.Error().
+		log.Error().
 			Err(err).
 			Int("event_count", len(events)).
 			Msg("Failed to marshal events for Redis")
@@ -90,12 +91,12 @@ func (b *BackupFlusher) FlushToRedis(events []externalservices.MongoChangeEvent)
 	}, 3, time.Second)
 
 	if err != nil {
-		logger.Error().
+		log.Error().
 			Err(err).
 			Int("event_count", len(events)).
 			Msg("Failed to store events in primary Redis")
 	} else {
-		logger.Debug().
+		log.Debug().
 			Int("event_count", len(events)).
 			Msg("Successfully stored events in primary Redis")
 	}
@@ -106,19 +107,19 @@ func (b *BackupFlusher) FlushToRedis(events []externalservices.MongoChangeEvent)
 	}, 3, time.Second)
 
 	if err != nil {
-		logger.Error().
+		log.Error().
 			Err(err).
 			Int("event_count", len(events)).
 			Msg("Failed to store events in backup Redis")
 	} else {
-		logger.Debug().
+		log.Debug().
 			Int("event_count", len(events)).
 			Msg("Successfully stored events in backup Redis")
 	}
 }
 
 func (b *BackupFlusher) storeInFallback(ctx context.Context, events ...externalservices.MongoChangeEvent) error {
-	logger.Debug().
+	log.Debug().
 		Int("event_count", len(events)).
 		Msg("Connecting to fallback MongoDB")
 
@@ -142,7 +143,7 @@ func (b *BackupFlusher) storeInFallback(ctx context.Context, events ...externals
 		return err
 	}
 
-	logger.Debug().
+	log.Debug().
 		Int("event_count", len(events)).
 		Msg("Successfully stored events in fallback MongoDB")
 	return nil
