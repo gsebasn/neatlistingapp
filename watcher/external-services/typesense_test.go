@@ -44,6 +44,11 @@ func (m *MockTypesenseDocuments) Import(ctx context.Context, documents []interfa
 	return args.Get(0), args.Error(1)
 }
 
+func (m *MockTypesenseDocuments) Search(ctx context.Context, searchParameters *api.SearchCollectionParams) (interface{}, error) {
+	args := m.Called(ctx, searchParameters)
+	return args.Get(0), args.Error(1)
+}
+
 // MockTypesenseDocument implements TypesenseDocumentInterface
 type MockTypesenseDocument struct {
 	mock.Mock
@@ -69,6 +74,11 @@ func (m *MockTypesenseCollection) Document(documentID string) TypesenseDocumentI
 	return m.DocumentMock
 }
 
+func (m *MockTypesenseCollection) Delete() (interface{}, error) {
+	args := m.Called()
+	return args.Get(0), args.Error(1)
+}
+
 // MockTypesenseClientWrapper implements TypesenseClientInterface
 type MockTypesenseClientWrapper struct {
 	mock.Mock
@@ -77,6 +87,11 @@ type MockTypesenseClientWrapper struct {
 
 func (m *MockTypesenseClientWrapper) Collection(collectionName string) TypesenseCollectionInterface {
 	return m.CollectionMock
+}
+
+func (m *MockTypesenseClientWrapper) Collections() TypesenseCollectionsInterface {
+	args := m.Called()
+	return args.Get(0).(TypesenseCollectionsInterface)
 }
 
 func TestTypesenseClient(t *testing.T) {
@@ -139,7 +154,12 @@ func TestTypesenseOperations(t *testing.T) {
 	t.Run("UpsertDocument Success", func(t *testing.T) {
 		docsMock := new(MockTypesenseDocuments)
 		docsMock.On("Upsert", ctx, document).Return(document, nil).Once()
-		collMock := &MockTypesenseCollection{DocumentsMock: docsMock}
+		docsMock.On("Search", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+		collMock := &MockTypesenseCollection{
+			DocumentsMock: docsMock,
+			Mock:          mock.Mock{},
+		}
+		collMock.On("Delete").Return(nil, nil).Maybe()
 		clientMock := &MockTypesenseClientWrapper{CollectionMock: collMock}
 		service := &TypesenseService{client: clientMock, collection: "test-collection"}
 		err := service.UpsertDocument(ctx, document)
@@ -150,7 +170,12 @@ func TestTypesenseOperations(t *testing.T) {
 	t.Run("UpsertDocument Error", func(t *testing.T) {
 		docsMock := new(MockTypesenseDocuments)
 		docsMock.On("Upsert", ctx, document).Return(nil, fmt.Errorf("document not found")).Once()
-		collMock := &MockTypesenseCollection{DocumentsMock: docsMock}
+		docsMock.On("Search", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+		collMock := &MockTypesenseCollection{
+			DocumentsMock: docsMock,
+			Mock:          mock.Mock{},
+		}
+		collMock.On("Delete").Return(nil, nil).Maybe()
 		clientMock := &MockTypesenseClientWrapper{CollectionMock: collMock}
 		service := &TypesenseService{client: clientMock, collection: "test-collection"}
 		err := service.UpsertDocument(ctx, document)
@@ -162,7 +187,11 @@ func TestTypesenseOperations(t *testing.T) {
 	t.Run("DeleteDocument Success", func(t *testing.T) {
 		docMock := new(MockTypesenseDocument)
 		docMock.On("Delete", ctx).Return(document, nil).Once()
-		collMock := &MockTypesenseCollection{DocumentMock: docMock}
+		collMock := &MockTypesenseCollection{
+			DocumentMock: docMock,
+			Mock:         mock.Mock{},
+		}
+		collMock.On("Delete").Return(nil, nil).Maybe()
 		clientMock := &MockTypesenseClientWrapper{CollectionMock: collMock}
 		service := &TypesenseService{client: clientMock, collection: "test-collection"}
 		err := service.DeleteDocument(ctx, "1")
@@ -173,7 +202,11 @@ func TestTypesenseOperations(t *testing.T) {
 	t.Run("DeleteDocument Error", func(t *testing.T) {
 		docMock := new(MockTypesenseDocument)
 		docMock.On("Delete", ctx).Return(nil, fmt.Errorf("document not found")).Once()
-		collMock := &MockTypesenseCollection{DocumentMock: docMock}
+		collMock := &MockTypesenseCollection{
+			DocumentMock: docMock,
+			Mock:         mock.Mock{},
+		}
+		collMock.On("Delete").Return(nil, nil).Maybe()
 		clientMock := &MockTypesenseClientWrapper{CollectionMock: collMock}
 		service := &TypesenseService{client: clientMock, collection: "test-collection"}
 		err := service.DeleteDocument(ctx, "1")
@@ -186,7 +219,12 @@ func TestTypesenseOperations(t *testing.T) {
 		docsMock := new(MockTypesenseDocuments)
 		params := &api.ImportDocumentsParams{Action: ptrString("upsert")}
 		docsMock.On("Import", ctx, documents, params).Return(nil, nil).Once()
-		collMock := &MockTypesenseCollection{DocumentsMock: docsMock}
+		docsMock.On("Search", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+		collMock := &MockTypesenseCollection{
+			DocumentsMock: docsMock,
+			Mock:          mock.Mock{},
+		}
+		collMock.On("Delete").Return(nil, nil).Maybe()
 		clientMock := &MockTypesenseClientWrapper{CollectionMock: collMock}
 		service := &TypesenseService{client: clientMock, collection: "test-collection"}
 		err := service.ImportDocuments(ctx, documents, "upsert")
@@ -198,7 +236,12 @@ func TestTypesenseOperations(t *testing.T) {
 		docsMock := new(MockTypesenseDocuments)
 		params := &api.ImportDocumentsParams{Action: ptrString("upsert")}
 		docsMock.On("Import", ctx, documents, params).Return(nil, fmt.Errorf("import failed")).Once()
-		collMock := &MockTypesenseCollection{DocumentsMock: docsMock}
+		docsMock.On("Search", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+		collMock := &MockTypesenseCollection{
+			DocumentsMock: docsMock,
+			Mock:          mock.Mock{},
+		}
+		collMock.On("Delete").Return(nil, nil).Maybe()
 		clientMock := &MockTypesenseClientWrapper{CollectionMock: collMock}
 		service := &TypesenseService{client: clientMock, collection: "test-collection"}
 		err := service.ImportDocuments(ctx, documents, "upsert")
