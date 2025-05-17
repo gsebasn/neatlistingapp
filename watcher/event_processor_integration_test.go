@@ -1,5 +1,9 @@
 package main
 
+// make sure to run this before running the test:
+// sudo mkdir -p /private/tmp/typesense-data
+// sudo chmod 777 /private/tmp/typesense-data
+
 import (
 	"context"
 	"testing"

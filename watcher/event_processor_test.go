@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"reflect"
 	"sync"
 	"syscall"
 	"testing"
@@ -22,6 +21,7 @@ import (
 type TestTypesenseService struct {
 	upsertErr error
 	deleteErr error
+	documents []map[string]interface{}
 }
 
 func NewTestTypesenseService() externalservices.TypesenseServiceContract {
@@ -29,20 +29,40 @@ func NewTestTypesenseService() externalservices.TypesenseServiceContract {
 }
 
 func (t *TestTypesenseService) UpsertDocument(ctx context.Context, document interface{}) error {
-	if document == nil || (reflect.ValueOf(document).Kind() == reflect.Map && reflect.ValueOf(document).IsNil()) {
-		return errors.New("document is nil")
+	if doc, ok := document.(map[string]interface{}); ok {
+		t.documents = append(t.documents, doc)
 	}
-	return t.upsertErr
+	return nil
 }
 
 func (t *TestTypesenseService) DeleteDocument(ctx context.Context, documentID string) error {
-	if documentID == "" {
-		return errors.New("documentID is empty")
+	for i, doc := range t.documents {
+		if id, ok := doc["_id"].(string); ok && id == documentID {
+			t.documents = append(t.documents[:i], t.documents[i+1:]...)
+			return nil
+		}
 	}
-	return t.deleteErr
+	return nil
 }
 
 func (t *TestTypesenseService) ImportDocuments(ctx context.Context, documents []interface{}, action string) error {
+	for _, doc := range documents {
+		if docMap, ok := doc.(map[string]interface{}); ok {
+			t.documents = append(t.documents, docMap)
+		}
+	}
+	return nil
+}
+
+func (t *TestTypesenseService) SearchDocuments(ctx context.Context, searchParameters map[string]interface{}) ([]map[string]interface{}, error) {
+	return t.documents, nil
+}
+
+func (t *TestTypesenseService) CreateCollection(ctx context.Context, schema map[string]interface{}) error {
+	return nil
+}
+
+func (t *TestTypesenseService) DeleteCollection(ctx context.Context, collectionName string) error {
 	return nil
 }
 
