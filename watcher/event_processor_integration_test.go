@@ -154,6 +154,14 @@ func TestEventProcessorIntegration(t *testing.T) {
 		1000,
 		time.Second,
 		time.Second*2,
+		RateLimiterConfig{
+			GlobalRatePerSecond:      1000,
+			InsertRatePerSecond:      500,
+			UpdateRatePerSecond:      300,
+			DeleteRatePerSecond:      200,
+			BurstMultiplier:          2.0,
+			OperationBurstMultiplier: 1.5,
+		},
 	)
 	require.NoError(t, err)
 	defer processor.Stop()

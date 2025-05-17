@@ -213,6 +213,14 @@ func TestProcessBatchBufferManagement(t *testing.T) {
 		watchingMongoDBService: &TestMongoService{},
 		fallbackMongoService:   &TestMongoService{},
 		processBusy:            make(chan bool, 1), // Initialize the channel
+		rateLimiter: NewRateLimiter(RateLimiterConfig{
+			GlobalRatePerSecond:      1000,
+			InsertRatePerSecond:      500,
+			UpdateRatePerSecond:      300,
+			DeleteRatePerSecond:      200,
+			BurstMultiplier:          2.0,
+			OperationBurstMultiplier: 1.5,
+		}, NewMetricsCollector()),
 	}
 
 	// Copy initial events to active buffer
@@ -253,6 +261,14 @@ func TestProcessBatchBufferManagementWhenAllActiveEventsFailedToBeInserted(t *te
 		watchingMongoDBService: &TestMongoService{},
 		fallbackMongoService:   &TestMongoService{},
 		processBusy:            make(chan bool, 1), // Initialize the channel
+		rateLimiter: NewRateLimiter(RateLimiterConfig{
+			GlobalRatePerSecond:      1000,
+			InsertRatePerSecond:      500,
+			UpdateRatePerSecond:      300,
+			DeleteRatePerSecond:      200,
+			BurstMultiplier:          2.0,
+			OperationBurstMultiplier: 1.5,
+		}, NewMetricsCollector()),
 	}
 
 	// Copy initial events to active buffer
@@ -299,6 +315,14 @@ func TestEventProcessor_Enqueue(t *testing.T) {
 		1000,
 		time.Second*5,
 		time.Second*10,
+		RateLimiterConfig{
+			GlobalRatePerSecond:      1000,
+			InsertRatePerSecond:      500,
+			UpdateRatePerSecond:      300,
+			DeleteRatePerSecond:      200,
+			BurstMultiplier:          2.0,
+			OperationBurstMultiplier: 1.5,
+		},
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, processor)
@@ -315,6 +339,7 @@ func TestEventProcessor_Enqueue(t *testing.T) {
 	err = processor.Enqueue(ctx, event)
 	assert.NoError(t, err)
 }
+
 func TestEventProcessor_WithTypesenseErrors(t *testing.T) {
 	typesenseService := &TestTypesenseService{upsertErr: errors.New("typesense error")}
 	primaryRedis := NewTestRedisService()
@@ -331,6 +356,14 @@ func TestEventProcessor_WithTypesenseErrors(t *testing.T) {
 		1000,
 		time.Second*5,
 		time.Second*10,
+		RateLimiterConfig{
+			GlobalRatePerSecond:      1000,
+			InsertRatePerSecond:      500,
+			UpdateRatePerSecond:      300,
+			DeleteRatePerSecond:      200,
+			BurstMultiplier:          2.0,
+			OperationBurstMultiplier: 1.5,
+		},
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, processor)
@@ -373,6 +406,14 @@ func TestEventProcessor_FlushAndClose(t *testing.T) {
 		processInterval:        time.Second * 5,
 		stopChan:               make(chan struct{}),
 		isNearLimit:            make(chan bool, 1),
+		rateLimiter: NewRateLimiter(RateLimiterConfig{
+			GlobalRatePerSecond:      1000,
+			InsertRatePerSecond:      500,
+			UpdateRatePerSecond:      300,
+			DeleteRatePerSecond:      200,
+			BurstMultiplier:          2.0,
+			OperationBurstMultiplier: 1.5,
+		}, NewMetricsCollector()),
 	}
 
 	// Start the accumulateEvents goroutine
@@ -455,6 +496,14 @@ func TestEventProcessor_StartProcessingTime_WhenThereAreEvents(t *testing.T) {
 		stopChan:               make(chan struct{}),
 		ticker:                 ticker,
 		isNearLimit:            make(chan bool, 1),
+		rateLimiter: NewRateLimiter(RateLimiterConfig{
+			GlobalRatePerSecond:      1000,
+			InsertRatePerSecond:      500,
+			UpdateRatePerSecond:      300,
+			DeleteRatePerSecond:      200,
+			BurstMultiplier:          2.0,
+			OperationBurstMultiplier: 1.5,
+		}, NewMetricsCollector()),
 	}
 
 	processor := &TestEventProcessor{
@@ -511,6 +560,14 @@ func TestEventProcessor_StartProcessingTime_WhenNoEvents(t *testing.T) {
 		stopChan:               make(chan struct{}),
 		ticker:                 ticker,
 		isNearLimit:            make(chan bool, 1),
+		rateLimiter: NewRateLimiter(RateLimiterConfig{
+			GlobalRatePerSecond:      1000,
+			InsertRatePerSecond:      500,
+			UpdateRatePerSecond:      300,
+			DeleteRatePerSecond:      200,
+			BurstMultiplier:          2.0,
+			OperationBurstMultiplier: 1.5,
+		}, NewMetricsCollector()),
 	}
 
 	processor := &TestEventProcessor{
@@ -564,6 +621,14 @@ func TestEventProcessor_ShutdownScenarios(t *testing.T) {
 			processInterval:        time.Second * 5,
 			stopChan:               make(chan struct{}),
 			isNearLimit:            make(chan bool, 1),
+			rateLimiter: NewRateLimiter(RateLimiterConfig{
+				GlobalRatePerSecond:      1000,
+				InsertRatePerSecond:      500,
+				UpdateRatePerSecond:      300,
+				DeleteRatePerSecond:      200,
+				BurstMultiplier:          2.0,
+				OperationBurstMultiplier: 1.5,
+			}, NewMetricsCollector()),
 		}
 
 		// Copy initial events to active buffer
@@ -670,6 +735,14 @@ func TestEventProcessor_ShutdownScenarios(t *testing.T) {
 			processInterval:        time.Second * 5,
 			stopChan:               make(chan struct{}),
 			isNearLimit:            make(chan bool, 1),
+			rateLimiter: NewRateLimiter(RateLimiterConfig{
+				GlobalRatePerSecond:      1000,
+				InsertRatePerSecond:      500,
+				UpdateRatePerSecond:      300,
+				DeleteRatePerSecond:      200,
+				BurstMultiplier:          2.0,
+				OperationBurstMultiplier: 1.5,
+			}, NewMetricsCollector()),
 		}
 
 		// Copy initial events to active buffer

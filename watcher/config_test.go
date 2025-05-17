@@ -65,6 +65,14 @@ func setupConfigTestEnv() {
 	os.Setenv("TYPESENSE_KEEPALIVE_TIMEOUT", "30s")
 	os.Setenv("TYPESENSE_MAX_RETRIES", "3")
 	os.Setenv("TYPESENSE_RETRY_BACKOFF", "100ms")
+
+	// Rate Limiting
+	os.Setenv("GLOBAL_RATE_PER_SECOND", "1000")
+	os.Setenv("INSERT_RATE_PER_SECOND", "500")
+	os.Setenv("UPDATE_RATE_PER_SECOND", "300")
+	os.Setenv("DELETE_RATE_PER_SECOND", "200")
+	os.Setenv("RATE_LIMIT_BURST_MULTIPLIER", "2.0")
+	os.Setenv("OPERATION_RATE_LIMIT_BURST_MULTIPLIER", "1.5")
 }
 
 func teardownConfigTestEnv() {
@@ -124,6 +132,14 @@ func teardownConfigTestEnv() {
 	os.Unsetenv("TYPESENSE_KEEPALIVE_TIMEOUT")
 	os.Unsetenv("TYPESENSE_MAX_RETRIES")
 	os.Unsetenv("TYPESENSE_RETRY_BACKOFF")
+
+	// Rate Limiting
+	os.Unsetenv("GLOBAL_RATE_PER_SECOND")
+	os.Unsetenv("INSERT_RATE_PER_SECOND")
+	os.Unsetenv("UPDATE_RATE_PER_SECOND")
+	os.Unsetenv("DELETE_RATE_PER_SECOND")
+	os.Unsetenv("RATE_LIMIT_BURST_MULTIPLIER")
+	os.Unsetenv("OPERATION_RATE_LIMIT_BURST_MULTIPLIER")
 }
 
 func TestConfigLoader(t *testing.T) {
@@ -191,6 +207,14 @@ func TestConfigLoader(t *testing.T) {
 		assert.Equal(t, 30*time.Second, config.Typesense.KeepAliveTimeout)
 		assert.Equal(t, 3, config.Typesense.MaxRetries)
 		assert.Equal(t, 100*time.Millisecond, config.Typesense.RetryBackoff)
+
+		// Test Rate Limiting config
+		assert.Equal(t, 1000.0, config.RateLimiting.GlobalRatePerSecond)
+		assert.Equal(t, 500.0, config.RateLimiting.InsertRatePerSecond)
+		assert.Equal(t, 300.0, config.RateLimiting.UpdateRatePerSecond)
+		assert.Equal(t, 200.0, config.RateLimiting.DeleteRatePerSecond)
+		assert.Equal(t, 2.0, config.RateLimiting.BurstMultiplier)
+		assert.Equal(t, 1.5, config.RateLimiting.OperationBurstMultiplier)
 	})
 
 	t.Run("Missing Required Environment Variables", func(t *testing.T) {

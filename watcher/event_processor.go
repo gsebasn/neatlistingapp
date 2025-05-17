@@ -33,6 +33,7 @@ type EventProcessor struct {
 	isNearLimit            chan bool         // Channel to signal when buffer is near limit
 	metrics                *MetricsCollector // Add metrics collector
 	closed                 bool              // Add closed flag
+	rateLimiter            *RateLimiter
 }
 
 func NewEventProcessor(
@@ -44,7 +45,9 @@ func NewEventProcessor(
 	maxBufferSize int,
 	processInterval time.Duration,
 	backupFlushInterval time.Duration,
+	rateLimiterConfig RateLimiterConfig,
 ) (*EventProcessor, error) {
+	metrics := NewMetricsCollector()
 
 	backupFlusher := NewBackupFlusher(
 		primaryRedis,
@@ -69,8 +72,9 @@ func NewEventProcessor(
 		backupFlushInterval:    backupFlushInterval,
 		stopChan:               make(chan struct{}),
 		processBusy:            make(chan bool, 1),
-		isNearLimit:            make(chan bool, 1),    // Buffered channel to prevent blocking
-		metrics:                NewMetricsCollector(), // Initialize metrics collector
+		isNearLimit:            make(chan bool, 1), // Buffered channel to prevent blocking
+		metrics:                metrics,            // Use the metrics variable
+		rateLimiter:            NewRateLimiter(rateLimiterConfig, metrics),
 	}
 
 	processor.ticker = time.NewTicker(processInterval)
@@ -169,6 +173,20 @@ func (w *EventProcessor) processBatch() {
 		event := batch[i]
 		ctx := context.Background()
 		eventStartTime := time.Now()
+
+		// Convert operation type to rate limiter operation type
+		opType := OperationType(event.OperationType)
+
+		// Wait for rate limit before processing
+		if err := w.rateLimiter.WaitForOperation(ctx, opType); err != nil {
+			log.Error().
+				Err(err).
+				Str("operation_type", event.OperationType).
+				Str("document_id", event.DocumentID).
+				Msg("Rate limit wait failed")
+			w.metrics.RecordError("rate_limit_wait")
+			continue
+		}
 
 		// Log event processing
 		log.Debug().

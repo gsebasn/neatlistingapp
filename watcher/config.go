@@ -57,6 +57,16 @@ type Config struct {
 	FlushInterval   int
 	PrimaryRedis    RedisConfig
 	SecondaryRedis  RedisConfig
+
+	// Rate limiting configuration
+	RateLimiting struct {
+		GlobalRatePerSecond      float64
+		InsertRatePerSecond      float64
+		UpdateRatePerSecond      float64
+		DeleteRatePerSecond      float64
+		BurstMultiplier          float64
+		OperationBurstMultiplier float64
+	}
 }
 
 func LoadConfig() (*Config, error) {
@@ -184,6 +194,37 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("invalid SECONDARY_REDIS_APPEND_ONLY: %v", err)
 	}
 
+	// Load rate limiting settings
+	globalRatePerSecond, err := strconv.ParseFloat(os.Getenv("GLOBAL_RATE_PER_SECOND"), 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid GLOBAL_RATE_PER_SECOND: %v", err)
+	}
+
+	insertRatePerSecond, err := strconv.ParseFloat(os.Getenv("INSERT_RATE_PER_SECOND"), 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid INSERT_RATE_PER_SECOND: %v", err)
+	}
+
+	updateRatePerSecond, err := strconv.ParseFloat(os.Getenv("UPDATE_RATE_PER_SECOND"), 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid UPDATE_RATE_PER_SECOND: %v", err)
+	}
+
+	deleteRatePerSecond, err := strconv.ParseFloat(os.Getenv("DELETE_RATE_PER_SECOND"), 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid DELETE_RATE_PER_SECOND: %v", err)
+	}
+
+	burstMultiplier, err := strconv.ParseFloat(os.Getenv("RATE_LIMIT_BURST_MULTIPLIER"), 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid RATE_LIMIT_BURST_MULTIPLIER: %v", err)
+	}
+
+	operationBurstMultiplier, err := strconv.ParseFloat(os.Getenv("OPERATION_RATE_LIMIT_BURST_MULTIPLIER"), 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid OPERATION_RATE_LIMIT_BURST_MULTIPLIER: %v", err)
+	}
+
 	return &Config{
 		// Primary MongoDB config
 		PrimaryMongoURI:        os.Getenv("PRIMARY_MONGODB_URI"),
@@ -241,6 +282,21 @@ func LoadConfig() (*Config, error) {
 			AppendOnly:      secondaryAppendOnly,
 			AppendFilename:  os.Getenv("SECONDARY_REDIS_APPEND_FILENAME"),
 			RDBFilename:     os.Getenv("SECONDARY_REDIS_RDB_FILENAME"),
+		},
+		RateLimiting: struct {
+			GlobalRatePerSecond      float64
+			InsertRatePerSecond      float64
+			UpdateRatePerSecond      float64
+			DeleteRatePerSecond      float64
+			BurstMultiplier          float64
+			OperationBurstMultiplier float64
+		}{
+			GlobalRatePerSecond:      globalRatePerSecond,
+			InsertRatePerSecond:      insertRatePerSecond,
+			UpdateRatePerSecond:      updateRatePerSecond,
+			DeleteRatePerSecond:      deleteRatePerSecond,
+			BurstMultiplier:          burstMultiplier,
+			OperationBurstMultiplier: operationBurstMultiplier,
 		},
 	}, nil
 }

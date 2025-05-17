@@ -101,6 +101,14 @@ func main() {
 		config.MaxBufferSize,
 		time.Duration(config.ProcessInterval)*time.Second,
 		time.Duration(config.FlushInterval)*time.Second,
+		RateLimiterConfig{
+			GlobalRatePerSecond:      config.RateLimiting.GlobalRatePerSecond,
+			InsertRatePerSecond:      config.RateLimiting.InsertRatePerSecond,
+			UpdateRatePerSecond:      config.RateLimiting.UpdateRatePerSecond,
+			DeleteRatePerSecond:      config.RateLimiting.DeleteRatePerSecond,
+			BurstMultiplier:          config.RateLimiting.BurstMultiplier,
+			OperationBurstMultiplier: config.RateLimiting.OperationBurstMultiplier,
+		},
 	)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to initialize event processor")

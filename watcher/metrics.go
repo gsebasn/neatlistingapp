@@ -60,6 +60,12 @@ var (
 		Help:    "Time taken for Typesense operations",
 		Buckets: prometheus.DefBuckets,
 	}, []string{"operation"})
+
+	// Rate limiting metrics
+	rateLimitHits = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "event_processor_rate_limit_hits_total",
+		Help: "Total number of rate limit hits, labeled by operation type",
+	}, []string{"operation_type"})
 )
 
 // MetricsCollector provides methods to update metrics
@@ -109,4 +115,9 @@ func (m *MetricsCollector) UpdateQueueLength(length int) {
 // RecordTypesenseOperationDuration records the time taken for a Typesense operation
 func (m *MetricsCollector) RecordTypesenseOperationDuration(operation string, duration float64) {
 	typesenseOperationDuration.WithLabelValues(operation).Observe(duration)
+}
+
+// RecordRateLimit records a rate limit hit for an operation type
+func (m *MetricsCollector) RecordRateLimit(operationType string) {
+	rateLimitHits.WithLabelValues(operationType).Inc()
 }
