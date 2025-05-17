@@ -387,5 +387,5 @@ func (w *EventProcessor) GetNearLimitState() <-chan bool {
 	return w.isNearLimit
 }
 
-// Add error for closed processor
+// ErrProcessorClosed Add error for closed processor
 var ErrProcessorClosed = errors.New("event processor is closed")

@@ -54,6 +54,7 @@ type Config struct {
 	MaxBufferSize   int
 	BatchSize       int
 	ProcessInterval int
+	FlushInterval   int
 	PrimaryRedis    RedisConfig
 	SecondaryRedis  RedisConfig
 }
@@ -75,6 +76,11 @@ func LoadConfig() (*Config, error) {
 	processInterval, err := strconv.Atoi(os.Getenv("PROCESS_INTERVAL"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid PROCESS_INTERVAL: %v", err)
+	}
+
+	flushInterval, err := strconv.Atoi(os.Getenv("FLUSH_INTERVAL"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid FLUSH_INTERVAL: %v", err)
 	}
 
 	primaryRedisDB, err := strconv.Atoi(os.Getenv("PRIMARY_REDIS_DB"))
@@ -203,6 +209,7 @@ func LoadConfig() (*Config, error) {
 		MaxBufferSize:   maxBufferSize,
 		BatchSize:       batchSize,
 		ProcessInterval: processInterval,
+		FlushInterval:   flushInterval,
 		PrimaryRedis: RedisConfig{
 			Host:            os.Getenv("PRIMARY_REDIS_HOST"),
 			Port:            os.Getenv("PRIMARY_REDIS_PORT"),

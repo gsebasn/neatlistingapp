@@ -51,9 +51,10 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to load configuration")
 	}
-
+	{
+	}
 	// Create Redis services
-	primaryRedis := externalservices.NewRedisService(
+	primaryRedisService := externalservices.NewRedisService(
 		config.PrimaryRedis.Host,
 		config.PrimaryRedis.Port,
 		config.PrimaryRedis.Password,
@@ -61,7 +62,7 @@ func main() {
 		config.PrimaryRedis.QueueKey,
 	)
 
-	backupRedis := externalservices.NewRedisService(
+	secondaryRedisService := externalservices.NewRedisService(
 		config.SecondaryRedis.Host,
 		config.SecondaryRedis.Port,
 		config.SecondaryRedis.Password,
@@ -70,7 +71,7 @@ func main() {
 	)
 
 	// Create MongoDB services
-	watchingMongoDBService := externalservices.NewMongoService(
+	watchingMongoService := externalservices.NewMongoService(
 		config.PrimaryMongoURI,
 		config.PrimaryMongoDatabase,
 		config.PrimaryMongoCollection,
@@ -93,23 +94,23 @@ func main() {
 
 	eventProcessor, err := NewEventProcessor(
 		typesenseService,
-		primaryRedis,
-		backupRedis,
-		watchingMongoDBService,
+		primaryRedisService,
+		secondaryRedisService,
+		watchingMongoService,
 		fallbackMongoService,
 		config.MaxBufferSize,
 		time.Duration(config.ProcessInterval)*time.Second,
-		time.Duration(config.ProcessInterval)*time.Second*2,
+		time.Duration(config.FlushInterval)*time.Second,
 	)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to initialize event processor")
 	}
 
 	// Connect to MongoDB services
-	if err := watchingMongoDBService.Connect(context.Background()); err != nil {
+	if err := watchingMongoService.Connect(context.Background()); err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to watching MongoDB")
 	}
-	defer watchingMongoDBService.Disconnect(context.Background())
+	defer watchingMongoService.Disconnect(context.Background())
 
 	if err := fallbackMongoService.Connect(context.Background()); err != nil {
 		log.Fatal().Err(err).Msg("Failed to connect to fallback MongoDB")
@@ -133,7 +134,7 @@ func main() {
 	// Start watching MongoDB changes
 	log.Info().Msg("Starting MongoDB change stream watcher...")
 	opts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
-	stream, err := watchingMongoDBService.Watch(ctx, nil, opts)
+	stream, err := watchingMongoService.Watch(ctx, nil, opts)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Error creating change stream")
 	}
