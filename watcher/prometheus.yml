@@ -20,3 +20,8 @@ scrape_configs:
   #   static_configs:
   #     - targets: ['localhost:9100']
 
+  # New scrape configuration for the Go service
+  - job_name: 'watcher'
+    static_configs:
+      - targets: ['host.docker.internal:2112']  # Use the correct host and port
+

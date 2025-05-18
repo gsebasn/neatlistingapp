@@ -40,8 +40,13 @@ func main() {
 		if metricsPort == "" {
 			metricsPort = "2112" // Default metrics port
 		}
-		log.Info().Str("port", metricsPort).Msg("Starting Prometheus metrics server")
-		if err := http.ListenAndServe(":"+metricsPort, nil); err != nil {
+		metricsHost := os.Getenv("METRICS_HOST")
+		if metricsHost == "" {
+			metricsHost = "0.0.0.0" // Default to all interfaces for Docker compatibility
+		}
+		addr := metricsHost + ":" + metricsPort
+		log.Info().Str("address", addr).Msg("Starting Prometheus metrics server")
+		if err := http.ListenAndServe(addr, nil); err != nil {
 			log.Error().Err(err).Msg("Failed to start metrics server")
 		}
 	}()
