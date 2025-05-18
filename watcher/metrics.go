@@ -3,6 +3,8 @@ package main
 import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -68,56 +70,135 @@ var (
 	}, []string{"operation_type"})
 )
 
-// MetricsCollector provides methods to update metrics
-type MetricsCollector struct{}
+// PrometheusMetricsCollector provides methods to update and query metrics
+type PrometheusMetricsCollector struct {
+	// Add any internal state if needed
+}
 
 // NewMetricsCollector creates a new metrics collector
-func NewMetricsCollector() *MetricsCollector {
-	return &MetricsCollector{}
+func NewMetricsCollector() MetricsCollector {
+	return &PrometheusMetricsCollector{}
 }
 
 // UpdateBufferSizes updates the buffer size metrics
-func (m *MetricsCollector) UpdateBufferSizes(activeSize, backupSize int) {
+func (m *PrometheusMetricsCollector) UpdateBufferSizes(activeSize, backupSize int) {
 	activeBufferSize.Set(float64(activeSize))
 	backupBufferSize.Set(float64(backupSize))
 }
 
 // RecordEventProcessed records a processed event
-func (m *MetricsCollector) RecordEventProcessed(operationType, status string) {
+func (m *PrometheusMetricsCollector) RecordEventProcessed(operationType, status string) {
 	eventsProcessedTotal.WithLabelValues(operationType, status).Inc()
 }
 
 // RecordEventProcessingDuration records the time taken to process an event
-func (m *MetricsCollector) RecordEventProcessingDuration(operationType string, duration float64) {
+func (m *PrometheusMetricsCollector) RecordEventProcessingDuration(operationType string, duration float64) {
 	eventProcessingDuration.WithLabelValues(operationType).Observe(duration)
 }
 
 // RecordBatchSize records the size of a processed batch
-func (m *MetricsCollector) RecordBatchSize(size int) {
+func (m *PrometheusMetricsCollector) RecordBatchSize(size int) {
 	batchSize.Observe(float64(size))
 }
 
 // RecordBatchProcessingDuration records the time taken to process a batch
-func (m *MetricsCollector) RecordBatchProcessingDuration(duration float64) {
+func (m *PrometheusMetricsCollector) RecordBatchProcessingDuration(duration float64) {
 	batchProcessingDuration.Observe(duration)
 }
 
 // RecordError records a processing error
-func (m *MetricsCollector) RecordError(errorType string) {
+func (m *PrometheusMetricsCollector) RecordError(errorType string) {
 	processingErrors.WithLabelValues(errorType).Inc()
 }
 
 // UpdateQueueLength updates the queue length metric
-func (m *MetricsCollector) UpdateQueueLength(length int) {
+func (m *PrometheusMetricsCollector) UpdateQueueLength(length int) {
 	queueLength.Set(float64(length))
 }
 
 // RecordTypesenseOperationDuration records the time taken for a Typesense operation
-func (m *MetricsCollector) RecordTypesenseOperationDuration(operation string, duration float64) {
+func (m *PrometheusMetricsCollector) RecordTypesenseOperationDuration(operation string, duration float64) {
 	typesenseOperationDuration.WithLabelValues(operation).Observe(duration)
 }
 
 // RecordRateLimit records a rate limit hit for an operation type
-func (m *MetricsCollector) RecordRateLimit(operationType string) {
+func (m *PrometheusMetricsCollector) RecordRateLimit(operationType string) {
 	rateLimitHits.WithLabelValues(operationType).Inc()
+}
+
+// getOperationCount returns the count of operations for a given type and status
+func (m *PrometheusMetricsCollector) getOperationCount(operationType, status string) float64 {
+	// Get the counter value from Prometheus
+	counter, err := eventsProcessedTotal.GetMetricWithLabelValues(operationType, status)
+	if err != nil {
+		log.Error().Err(err).
+			Str("operation_type", operationType).
+			Str("status", status).
+			Msg("Failed to get operation count metric")
+		return 0
+	}
+
+	// Get the current value using prometheus.Collector interface
+	var value float64
+	ch := make(chan prometheus.Metric, 1)
+	counter.Collect(ch)
+	metric := <-ch
+
+	// Convert to float64
+	var dtoMetric dto.Metric
+	if err := metric.Write(&dtoMetric); err != nil {
+		log.Error().Err(err).
+			Str("operation_type", operationType).
+			Str("status", status).
+			Msg("Failed to write metric to DTO")
+		return 0
+	}
+
+	if dtoMetric.Counter != nil {
+		value = *dtoMetric.Counter.Value
+	}
+
+	return value
+}
+
+// getAverageProcessingDuration returns the average processing duration for an operation type
+func (m *PrometheusMetricsCollector) getAverageProcessingDuration(operationType string) float64 {
+	// Get the histogram from Prometheus
+	histogram, err := eventProcessingDuration.GetMetricWithLabelValues(operationType)
+	if err != nil {
+		log.Error().Err(err).
+			Str("operation_type", operationType).
+			Msg("Failed to get processing duration metric")
+		return 0
+	}
+
+	// Get the current value using prometheus.Collector interface
+	var sum, count float64
+	ch := make(chan prometheus.Metric, 1)
+
+	// Use the histogram's underlying collector
+	if collector, ok := histogram.(prometheus.Collector); ok {
+		collector.Collect(ch)
+		metric := <-ch
+
+		// Convert to float64
+		var dtoMetric dto.Metric
+		if err := metric.Write(&dtoMetric); err != nil {
+			log.Error().Err(err).
+				Str("operation_type", operationType).
+				Msg("Failed to write metric to DTO")
+			return 0
+		}
+
+		if dtoMetric.Histogram != nil {
+			sum = *dtoMetric.Histogram.SampleSum
+			count = float64(*dtoMetric.Histogram.SampleCount)
+		}
+	}
+
+	if count == 0 {
+		return 0
+	}
+
+	return sum / count
 }

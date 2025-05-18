@@ -1,0 +1,22 @@
+# Global configuration
+global:
+  scrape_interval: 15s      # How frequently to scrape targets by default
+  evaluation_interval: 15s  # How frequently to evaluate rules
+  
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    
+  # Example scrape configuration for local app
+  # - job_name: 'app'
+  #   static_configs:
+  #     - targets: ['localhost:8080']
+  
+  # Node exporter for system metrics (if available)
+  # - job_name: 'node'
+  #   static_configs:
+  #     - targets: ['localhost:9100']
+

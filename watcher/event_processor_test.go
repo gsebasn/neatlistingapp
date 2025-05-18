@@ -221,6 +221,7 @@ func TestProcessBatchBufferManagement(t *testing.T) {
 			BurstMultiplier:          2.0,
 			OperationBurstMultiplier: 1.5,
 		}, NewMetricsCollector()),
+		metrics: NewMetricsCollector(),
 	}
 
 	// Copy initial events to active buffer
@@ -269,6 +270,7 @@ func TestProcessBatchBufferManagementWhenAllActiveEventsFailedToBeInserted(t *te
 			BurstMultiplier:          2.0,
 			OperationBurstMultiplier: 1.5,
 		}, NewMetricsCollector()),
+		metrics: NewMetricsCollector(),
 	}
 
 	// Copy initial events to active buffer
@@ -414,6 +416,7 @@ func TestEventProcessor_FlushAndClose(t *testing.T) {
 			BurstMultiplier:          2.0,
 			OperationBurstMultiplier: 1.5,
 		}, NewMetricsCollector()),
+		metrics: NewMetricsCollector(),
 	}
 
 	// Start the accumulateEvents goroutine
@@ -504,6 +507,7 @@ func TestEventProcessor_StartProcessingTime_WhenThereAreEvents(t *testing.T) {
 			BurstMultiplier:          2.0,
 			OperationBurstMultiplier: 1.5,
 		}, NewMetricsCollector()),
+		metrics: NewMetricsCollector(),
 	}
 
 	processor := &TestEventProcessor{
@@ -568,6 +572,7 @@ func TestEventProcessor_StartProcessingTime_WhenNoEvents(t *testing.T) {
 			BurstMultiplier:          2.0,
 			OperationBurstMultiplier: 1.5,
 		}, NewMetricsCollector()),
+		metrics: NewMetricsCollector(),
 	}
 
 	processor := &TestEventProcessor{
@@ -629,6 +634,7 @@ func TestEventProcessor_ShutdownScenarios(t *testing.T) {
 				BurstMultiplier:          2.0,
 				OperationBurstMultiplier: 1.5,
 			}, NewMetricsCollector()),
+			metrics: NewMetricsCollector(),
 		}
 
 		// Copy initial events to active buffer
@@ -743,6 +749,7 @@ func TestEventProcessor_ShutdownScenarios(t *testing.T) {
 				BurstMultiplier:          2.0,
 				OperationBurstMultiplier: 1.5,
 			}, NewMetricsCollector()),
+			metrics: NewMetricsCollector(),
 		}
 
 		// Copy initial events to active buffer

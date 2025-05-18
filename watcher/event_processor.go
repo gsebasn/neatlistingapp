@@ -30,9 +30,9 @@ type EventProcessor struct {
 	backupFlushInterval    time.Duration
 	stopChan               chan struct{}
 	processBusy            chan bool
-	isNearLimit            chan bool         // Channel to signal when buffer is near limit
-	metrics                *MetricsCollector // Add metrics collector
-	closed                 bool              // Add closed flag
+	isNearLimit            chan bool        // Channel to signal when buffer is near limit
+	metrics                MetricsCollector // Use the metrics interface, not a pointer
+	closed                 bool             // Add closed flag
 	rateLimiter            *RateLimiter
 }
 
